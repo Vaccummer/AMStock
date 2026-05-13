@@ -1,0 +1,4 @@
+interface:
+  display_name: "AMStock Sector"
+  short_description: "Fetch A-share concept and industry board data with AKShare."
+  default_prompt: "Use this skill to fetch A-share concept boards, industry boards, and their constituent stocks."

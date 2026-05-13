@@ -1,0 +1,4 @@
+interface:
+  display_name: "AMStock Fundamental"
+  short_description: "Fetch A-share financial and fundamental data with AKShare."
+  default_prompt: "Use this skill to fetch A-share financial statements, key indicators, and company fundamentals."

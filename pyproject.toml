@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amstock"
+version = "0.1.0"
+description = "A Python application for stock market data workflows."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+  { name = "AMStock contributors" },
+]
+dependencies = [
+  "sqlalchemy>=2.0",
+  "tzdata>=2025.2; platform_system == 'Windows'",
+  "typer>=0.15",
+  "akshare>=1.18.60",
+  "baostock>=0.9.1",
+]
+
+[project.scripts]
+amstock = "amstock.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amstock"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN", "TCH", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[[tool.uv.index]]
+url = "https://repo.huaweicloud.com/repository/pypi/simple"
+default = true

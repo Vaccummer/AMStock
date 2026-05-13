@@ -1,0 +1,4 @@
+interface:
+  display_name: "AMStock Portfolio Record"
+  short_description: "Record stock transactions and calculate portfolio returns."
+  default_prompt: "Use this skill to record stock buy/sell transactions, view holdings, and calculate realized or unrealized returns."
