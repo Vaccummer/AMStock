@@ -1,6 +1,6 @@
 ---
 name: amstock-store-admin
-description: Manage AMStock local store users with the admin token. Use when the user wants to create, list, rename, activate, or deactivate local portfolio ledger users. Admin commands require the hardcoded token configured in `src/amstock/config.py`.
+description: Manage AMStock local store users with the admin token. Use when the user wants to create, list, rename, activate, or deactivate local portfolio ledger users. Admin commands require the token configured in `AMSTOCK_ROOT/config/cli.toml`.
 ---
 
 # AMStock Store Admin
@@ -8,8 +8,23 @@ description: Manage AMStock local store users with the admin token. Use when the
 Use `amstock_store admin user ...` from the AMStock project root. These commands manage
 local ledger users only. They do not authenticate OS users or grant application sessions.
 
-Admin commands require `--admin-token`. The configured token is hardcoded in
-`src/amstock/config.py` as `DEFAULT_STORE_ADMIN_TOKEN`.
+Admin commands require `--admin-token`. The configured token is read from
+`AMSTOCK_ROOT/config/cli.toml`.
+
+`AMSTOCK_ROOT` must be set. If it is missing, cannot be created as a directory, or
+`config/cli.toml` is missing, the CLI exits with a JSON configuration error.
+
+Example config:
+
+```toml
+[database]
+path = "data/amstock.sqlite3"
+
+[store]
+admin_token = "amstock-store-admin-token"
+```
+
+`database.path` may be relative. Relative database paths are resolved from `AMSTOCK_ROOT`.
 
 ## Commands
 

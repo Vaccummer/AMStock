@@ -11,6 +11,9 @@ transactions can be recorded.
 
 The store persists transaction records in the configured AMStock database and calculates
 positions and returns from those records using FIFO cost accounting.
+Configuration is loaded from `AMSTOCK_ROOT/config/cli.toml`; relative database paths are
+resolved from `AMSTOCK_ROOT`.
+`AMSTOCK_ROOT` must be set, and `config/cli.toml` must exist.
 
 ## Record Trades
 

@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING
 from typer.testing import CliRunner
 
 from amstock import store_cli
-from amstock.config import DEFAULT_STORE_ADMIN_TOKEN
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
+
+ADMIN_TOKEN = "test-admin-token"
 
 
 def test_store_cli_records_and_summarizes_user_portfolio(
@@ -22,8 +23,7 @@ def test_store_cli_records_and_summarizes_user_portfolio(
 ) -> None:
     """The CLI emits JSON and persists a local user's ledger."""
 
-    database_path = tmp_path / "store.sqlite3"
-    monkeypatch.setenv("AMSTOCK_DATABASE_URL", f"sqlite:///{database_path}")
+    configure_amstock_root(tmp_path, monkeypatch)
     runner = CliRunner()
 
     create = runner.invoke(
@@ -37,7 +37,7 @@ def test_store_cli_records_and_summarizes_user_portfolio(
             "--display-name",
             "张三",
             "--admin-token",
-            DEFAULT_STORE_ADMIN_TOKEN,
+            ADMIN_TOKEN,
         ],
     )
     assert create.exit_code == 0
@@ -84,8 +84,7 @@ def test_store_cli_rejects_invalid_admin_token(
 ) -> None:
     """Admin commands require the configured token."""
 
-    database_path = tmp_path / "store.sqlite3"
-    monkeypatch.setenv("AMSTOCK_DATABASE_URL", f"sqlite:///{database_path}")
+    configure_amstock_root(tmp_path, monkeypatch)
     result = CliRunner().invoke(
         store_cli.app,
         [
@@ -103,3 +102,21 @@ def test_store_cli_rejects_invalid_admin_token(
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert payload["error"]["message"] == "invalid admin token"
+
+
+def configure_amstock_root(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Create a CLI config under a temporary AMSTOCK_ROOT."""
+
+    config_dir = root / "config"
+    config_dir.mkdir()
+    (config_dir / "cli.toml").write_text(
+        f"""
+[database]
+path = "data/store.sqlite3"
+
+[store]
+admin_token = "{ADMIN_TOKEN}"
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AMSTOCK_ROOT", str(root))

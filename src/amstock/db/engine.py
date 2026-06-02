@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from amstock.db.base import Base
+from amstock.exceptions import ConfigurationError
 from amstock.models import register_models
 
 if TYPE_CHECKING:
@@ -65,4 +66,9 @@ def ensure_sqlite_parent(database_url: str) -> None:
     ):
         return
 
-    Path(url.database).expanduser().parent.mkdir(parents=True, exist_ok=True)
+    parent = Path(url.database).expanduser().parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        msg = f"could not create database directory: {parent}"
+        raise ConfigurationError(msg) from exc
