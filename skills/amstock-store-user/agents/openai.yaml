@@ -1,0 +1,4 @@
+interface:
+  display_name: "AMStock Store User"
+  short_description: "Record portfolio transactions and calculate local store returns."
+  default_prompt: "Use this skill to record AMStock local store buy/sell/import transactions, list trade history, view holdings, and calculate realized or unrealized returns."

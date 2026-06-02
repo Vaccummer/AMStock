@@ -27,7 +27,7 @@ working query paths and emits one JSON object per command, including failures.
 Examples:
 
 ```powershell
-uv run amstock_src price-history --symbol 600519 --start-date 20250101 --end-date 20250511 --adjust qfq --limit 20 --no-proxy --ipv4
+uv run amstock_src price-history --symbol 600519 --start-date 20250101 --end-date 20250511 --adjust qfq --limit 20
 uv run amstock_src financial-report --symbol 600519 --report-type income --limit 5 --no-proxy --ipv4
 uv run amstock_src stock-basic --symbol 600519 --limit 5
 uv run amstock_src industry-list --limit 20
@@ -37,7 +37,7 @@ Known unstable AKShare interfaces are routed directly to BaoStock in `amstock_sr
 instead of trying AKShare first and falling back at runtime. Routing is fixed per
 command, so a command returns a stable data schema instead of changing sources
 after a runtime failure. Current direct BaoStock commands include `a-spot`,
-`stock-basic`, and `industry-list`.
+`stock-basic`, `price-history`, and `industry-list`.
 
 ## Skills
 

@@ -91,7 +91,7 @@ def price_history(
     no_proxy: NoProxyOption = False,
     ipv4: Ipv4Option = False,
 ) -> None:
-    """Fetch A-share historical K-line data."""
+    """Fetch BaoStock A-share historical K-line data."""
 
     _run_json(
         lambda: fetch_price_history(

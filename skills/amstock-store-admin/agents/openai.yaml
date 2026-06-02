@@ -1,0 +1,4 @@
+interface:
+  display_name: "AMStock Store Admin"
+  short_description: "Manage local portfolio ledger users with an admin token."
+  default_prompt: "Use this skill to create, list, rename, activate, or deactivate AMStock local store users. Include the configured admin token for every admin command."

@@ -8,3 +8,5 @@ def register_models() -> None:
 
     Add model imports here as stock-domain tables are introduced.
     """
+
+    from amstock.models import store as _store  # noqa: F401

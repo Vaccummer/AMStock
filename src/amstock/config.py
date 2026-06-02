@@ -8,6 +8,7 @@ from pathlib import Path
 
 DEFAULT_LANGUAGE = "zh-CN"
 DEFAULT_TIMEZONE = "Asia/Shanghai"
+DEFAULT_STORE_ADMIN_TOKEN = "amstock-store-admin-token"
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +18,7 @@ class AppSettings:
     database_url: str
     language: str = DEFAULT_LANGUAGE
     timezone: str = DEFAULT_TIMEZONE
+    store_admin_token: str = DEFAULT_STORE_ADMIN_TOKEN
 
 
 def default_data_dir() -> Path:

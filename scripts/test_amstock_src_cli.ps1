@@ -29,16 +29,14 @@ $cases = @(
         ExpectOk = $true
     },
     @{
-        Name = "price-history-akshare"
+        Name = "price-history-baostock"
         Args = @(
             "run", "amstock_src", "price-history",
             "--symbol", "600519",
             "--start-date", "20250501",
             "--end-date", "20250511",
             "--adjust", "qfq",
-            "--limit", "3",
-            "--no-proxy",
-            "--ipv4"
+            "--limit", "3"
         )
         ExpectOk = $true
     },

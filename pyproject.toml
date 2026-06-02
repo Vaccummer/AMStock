@@ -23,6 +23,7 @@ dependencies = [
 [project.scripts]
 amstock = "amstock.cli:main"
 amstock_src = "amstock.src_cli:main"
+amstock_store = "amstock.store_cli:main"
 
 [dependency-groups]
 dev = [

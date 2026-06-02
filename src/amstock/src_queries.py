@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from amstock.akshare_io import (
     configure_network,
     dataframe_payload,
@@ -15,6 +17,17 @@ ADJUST_MAP = {
     "qfq": "qfq",
     "hfq": "hfq",
 }
+BAOSTOCK_ADJUST_MAP = {
+    "none": "3",
+    "qfq": "2",
+    "hfq": "1",
+}
+BAOSTOCK_PERIOD_MAP = {
+    "daily": "d",
+    "weekly": "w",
+    "monthly": "m",
+}
+BAOSTOCK_HISTORY_FIELDS = "date,code,open,high,low,close,volume,amount,turn,pctChg"
 REPORT_TYPE_MAP = {
     "balance": "资产负债表",
     "cash-flow": "现金流量表",
@@ -47,7 +60,7 @@ def capabilities_payload() -> dict[str, object]:
                 "description": "Fetch A-share daily/weekly/monthly historical K-line data.",
                 "required": ["--symbol"],
                 "options": ["--period daily|weekly|monthly", "--adjust none|qfq|hfq"],
-                "source": "akshare",
+                "source": "baostock",
             },
             {
                 "name": "exchange-summary",
@@ -120,20 +133,17 @@ def fetch_price_history(
     no_proxy: bool = False,
     ipv4: bool = False,
 ) -> dict[str, object]:
-    """Fetch historical A-share K-line data from AKShare."""
+    """Fetch historical A-share K-line data from BaoStock."""
 
-    configure_network(no_proxy=no_proxy, ipv4=ipv4)
-    import akshare as ak
-
-    params = {
-        "symbol": normalize_a_stock_code(symbol),
-        "period": period,
-        "start_date": start_date,
-        "end_date": end_date,
-        "adjust": ADJUST_MAP[adjust],
-    }
-    dataframe = ak.stock_zh_a_hist(**params)
-    return dataframe_payload("stock_zh_a_hist", params, dataframe, limit=limit)
+    _configure_baostock_compatible_network(no_proxy=no_proxy, ipv4=ipv4)
+    return _baostock_price_history(
+        symbol=symbol,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        adjust=adjust,
+        limit=limit,
+    )
 
 
 def fetch_exchange_summary(
@@ -234,6 +244,32 @@ def _baostock_stock_basic(*, symbol: str, limit: int | None) -> dict[str, object
         )
 
 
+def _baostock_price_history(
+    *,
+    symbol: str,
+    period: str,
+    start_date: str,
+    end_date: str,
+    adjust: str,
+    limit: int | None,
+) -> dict[str, object]:
+    params = {
+        "code": normalize_baostock_code(symbol),
+        "fields": BAOSTOCK_HISTORY_FIELDS,
+        "start_date": _baostock_date(start_date),
+        "end_date": _baostock_date(end_date),
+        "frequency": BAOSTOCK_PERIOD_MAP[period],
+        "adjustflag": BAOSTOCK_ADJUST_MAP[adjust],
+    }
+    with baostock_session() as bs:
+        return result_set_payload(
+            "query_history_k_data_plus",
+            params,
+            bs.query_history_k_data_plus(**params),
+            limit=limit,
+        )
+
+
 def _baostock_industry_list(*, limit: int | None) -> dict[str, object]:
     params = {"code": "", "date": ""}
     with baostock_session() as bs:
@@ -251,6 +287,12 @@ def _baostock_day(value: str | None) -> str | None:
     if "-" in value:
         return value
     return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+
+
+def _baostock_date(value: str) -> str:
+    if "-" in value:
+        return value
+    return datetime.strptime(value, "%Y%m%d").strftime("%Y-%m-%d")
 
 
 def _configure_baostock_compatible_network(*, no_proxy: bool, ipv4: bool) -> None:
