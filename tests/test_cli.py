@@ -110,6 +110,362 @@ def test_unified_quote_pool_routes_to_biying(monkeypatch: pytest.MonkeyPatch) ->
     assert payload["limit"] == 3
 
 
+def test_stock_profile_routes_to_biying(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stock profile is exposed as a unified business command."""
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_biying_dataset)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["stock", "profile", "--symbol", "000063", "--licences", "lic-1"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "company-profile"
+    assert payload["params"] == {"symbol": "000063"}
+
+
+def test_stock_tech_routes_indicator_to_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stock technical indicators select the matching Biying dataset."""
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_biying_dataset)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "stock",
+            "tech",
+            "--symbol",
+            "000063",
+            "--indicator",
+            "macd",
+            "--period",
+            "d",
+            "--adjust",
+            "q",
+            "--lt",
+            "20",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "stock-tech-macd"
+    assert payload["params"] == {
+        "market_symbol": "000063",
+        "period": "d",
+        "adjust": "q",
+        "st": None,
+        "et": None,
+        "lt": 20,
+    }
+
+
+def test_quote_batch_routes_symbols_to_biying(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Multi-stock realtime quotes keep the comma-separated symbol list."""
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_biying_dataset)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["quote", "batch", "--symbols", "000063,600519", "--limit", "2"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "stock-realtime-more"
+    assert payload["params"] == {"stock_codes": "000063,600519"}
+    assert payload["limit"] == 2
+
+
+def test_quote_all_routes_selected_feed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """All-market quotes select the broker or network endpoint."""
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_biying_dataset)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["quote", "all", "--feed", "network", "--limit", "5000"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "stock-all-network"
+    assert payload["limit"] == 5000
+
+
+def test_quote_breadth_calculates_market_width(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Breadth is derived locally from all-market realtime quotes."""
+
+    def fake_fetch_quote_all(**_: object) -> dict[str, object]:
+        return {
+            "ok": True,
+            "dataset": "stock-all-network",
+            "rows": 5,
+            "data": [
+                {"dm": "000001", "zf": "1.5"},
+                {"dm": "000002", "zf": "-6.0"},
+                {"dm": "000003", "zf": "0"},
+                {"dm": "000004", "zf": "9.5"},
+                {"dm": "000005", "zf": "-9.1"},
+            ],
+        }
+
+    monkeypatch.setattr(cli, "_fetch_quote_all", fake_fetch_quote_all)
+
+    result = CliRunner().invoke(cli.app, ["quote", "breadth"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    summary = payload["data"][0]
+    assert summary["up"] == 2
+    assert summary["down"] == 2
+    assert summary["flat"] == 1
+    assert summary["up_gte_9"] == 1
+    assert summary["down_lte_minus_9"] == 1
+    assert summary["median_change_percent"] == 0.0
+
+
+def test_quote_sentiment_combines_pools_and_breadth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sentiment combines pool row counts with local breadth."""
+
+    def fake_fetch_biying(
+        dataset: str,
+        params: dict[str, object],
+        **_: object,
+    ) -> dict[str, object]:
+        _ = params
+        data = {
+            "limit-up-pool": [{"lbc": "2"}, {"lbc": "3"}],
+            "limit-down-pool": [{}],
+            "strong-pool": [{}, {}, {}],
+            "limit-break-pool": [{}],
+        }[dataset]
+        return {"ok": True, "rows": len(data), "data": data}
+
+    def fake_fetch_quote_all(**_: object) -> dict[str, object]:
+        return {"ok": True, "rows": 2, "data": [{"zf": "1"}, {"zf": "-1"}]}
+
+    monkeypatch.setattr(cli, "_fetch_biying", fake_fetch_biying)
+    monkeypatch.setattr(cli, "_fetch_quote_all", fake_fetch_quote_all)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["quote", "sentiment", "--date", "2026-06-05"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    summary = payload["data"][0]
+    assert summary["limit_up"] == 2
+    assert summary["limit_down"] == 1
+    assert summary["strong"] == 3
+    assert summary["limit_break"] == 1
+    assert summary["limit_break_rate"] == 0.333333
+    assert summary["highest_board_count"] == 3.0
+    assert summary["breadth"]["up"] == 1
+
+
+def test_quote_flow_summary_aggregates_recent_days(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Flow summary aggregates Biying active buy/sell amount fields."""
+
+    def fake_fetch_biying_dataset(**kwargs: object) -> dict[str, object]:
+        return {
+            "ok": True,
+            "source": "biying-test",
+            "function": kwargs["dataset"],
+            "params": kwargs["params"],
+            "rows": 3,
+            "data": [
+                {
+                    "t": "2026-06-03",
+                    "zmbtdcjzl": "100",
+                    "zmstdcjzl": "50",
+                    "zmbddcjzl": "80",
+                    "zmsddcjzl": "20",
+                },
+                {
+                    "t": "2026-06-05",
+                    "zmbtdcjzl": "90",
+                    "zmstdcjzl": "10",
+                    "zmbddcjzl": "20",
+                    "zmsddcjzl": "5",
+                },
+                {
+                    "t": "2026-06-04",
+                    "zmbtdcjzl": "10",
+                    "zmstdcjzl": "60",
+                    "zmbddcjzl": "5",
+                    "zmsddcjzl": "40",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_fetch_biying_dataset)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["quote", "flow-summary", "--symbol", "000063", "--days", "2"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    summary = payload["data"][0]
+    assert payload["function"] == "quote-flow-summary"
+    assert summary["records_used"] == 2
+    assert summary["main_net_1d"] == 95.0
+    assert summary["main_net_3d"] == 10.0
+    assert summary["super_large_net_amount"] == 30.0
+    assert summary["large_net_amount"] == -20.0
+    assert summary["consecutive_flow_days"] == 1
+
+
+def test_index_intraday_routes_symbol_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Index intraday supports --symbol as an alias for --index."""
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_biying_dataset)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["index", "intraday", "--symbol", "000001.SH", "--period", "1"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "index-latest"
+    assert payload["params"] == {"index": "000001.SH", "period": "1", "lt": None}
+
+
+def test_index_tech_routes_indicator_to_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Index technical indicators select the matching Biying dataset."""
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_biying_dataset)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["index", "tech", "--symbol", "000001.SH", "--indicator", "ma"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "index-tech-ma"
+    assert payload["params"] == {
+        "index": "000001.SH",
+        "period": "d",
+        "st": None,
+        "et": None,
+        "lt": None,
+    }
+
+
+def test_sector_flow_routes_to_tested_ths_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sector flow uses the tested THS AKShare functions."""
+
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["sector", "flow", "--kind", "concept", "--period", "5d", "--limit", "10"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "stock_fund_flow_concept"
+    assert payload["params"] == {"symbol": "5日排行"}
+    assert payload["limit"] == 10
+
+
+def test_fund_share_change_routes_sse_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SSE ETF share-change uses the tested SSE scale function."""
+
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["fund", "share-change", "--exchange", "sse", "--date", "20250115", "--limit", "2"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "fund_etf_scale_sse"
+    assert payload["params"] == {"date": "20250115"}
+    assert payload["limit"] == 2
+
+
+def test_fund_share_change_routes_szse_backup_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SZSE ETF share-change uses fund_scale_daily_szse instead of broken fund_etf_scale_szse."""
+
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["fund", "share-change", "--exchange", "szse", "--date", "20260401"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "fund_scale_daily_szse"
+    assert payload["params"] == {
+        "symbol": "ETF",
+        "start_date": "20260401",
+        "end_date": "20260401",
+    }
+
+
+def test_fund_holdings_routes_to_eastmoney_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fund holdings use the tested Eastmoney fund portfolio source."""
+
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["fund", "holdings", "--symbol", "159995", "--year", "2024"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "fund_portfolio_hold_em"
+    assert payload["params"] == {"symbol": "159995", "date": "2024"}
+
+
+def test_fund_holding_summary_routes_to_cninfo_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fund holding summary exposes the tested CNInfo market-level source."""
+
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["fund", "holding-summary", "--date", "20241231", "--limit", "5"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "fund_report_stock_cninfo"
+    assert payload["params"] == {"date": "20241231"}
+    assert payload["limit"] == 5
+
+
 def test_unified_sources_capabilities_keeps_legacy_source_app() -> None:
     """The old source CLI is available under the unified sources namespace."""
 
@@ -121,13 +477,49 @@ def test_unified_sources_capabilities_keeps_legacy_source_app() -> None:
     assert payload["cli"] == "amstock_src"
 
 
+def test_config_init_creates_default_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The unified CLI can create AMSTOCK_HOME/config/config.toml."""
+
+    monkeypatch.setenv("AMSTOCK_HOME", str(tmp_path))
+    result = CliRunner().invoke(cli.app, ["config", "init"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["created"] is True
+    assert (tmp_path / "config" / "config.toml").exists()
+
+    second = CliRunner().invoke(cli.app, ["config", "init"])
+    assert second.exit_code == 0
+    assert json.loads(second.stdout)["created"] is False
+
+
+def test_config_path_reports_primary_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The config path command reports the active AMStock config path."""
+
+    monkeypatch.setenv("AMSTOCK_HOME", str(tmp_path))
+    result = CliRunner().invoke(cli.app, ["config", "path"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["amstock_home"] == str(tmp_path)
+    assert payload["config_path"] == str(tmp_path / "config" / "config.toml")
+
+
 def test_unified_portfolio_namespace_mounts_store_cli(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The portfolio namespace exposes the existing store commands."""
 
-    configure_amstock_root(tmp_path, monkeypatch)
+    configure_amstock_home(tmp_path, monkeypatch)
     runner = CliRunner()
 
     create = runner.invoke(
@@ -174,19 +566,66 @@ def test_unified_portfolio_namespace_mounts_store_cli(
     assert payload["positions"][0]["quantity"] == "100.0000"
 
 
-def configure_amstock_root(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Create a CLI config under a temporary AMSTOCK_ROOT."""
+def configure_amstock_home(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Create a config under a temporary AMSTOCK_HOME."""
 
     config_dir = root / "config"
     config_dir.mkdir()
-    (config_dir / "cli.toml").write_text(
+    (config_dir / "config.toml").write_text(
         f"""
 [database]
 path = "data/store.sqlite3"
 
-[store]
+[credentials.store]
 admin_token = "{ADMIN_TOKEN}"
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("AMSTOCK_ROOT", str(root))
+    monkeypatch.setenv("AMSTOCK_HOME", str(root))
+    monkeypatch.delenv("AMSTOCK_ROOT", raising=False)
+
+
+def fake_biying_dataset(
+    *,
+    dataset: str,
+    params: dict[str, str | int | None],
+    licences_value: str | None,
+    base_url: str,
+    timeout: float,
+    limit: int | None,
+) -> dict[str, object]:
+    """Return the Biying call metadata for route tests."""
+
+    return {
+        "ok": True,
+        "source": "biying-test",
+        "function": dataset,
+        "params": params,
+        "licences_value": licences_value,
+        "base_url": base_url,
+        "timeout": timeout,
+        "limit": limit,
+        "data": [],
+    }
+
+
+def fake_akshare_dataframe(
+    function: str,
+    params: dict[str, object],
+    *,
+    limit: int | None,
+    no_proxy: bool,
+    ipv4: bool,
+) -> dict[str, object]:
+    """Return AKShare call metadata for route tests."""
+
+    return {
+        "ok": True,
+        "source": "akshare-test",
+        "function": function,
+        "params": params,
+        "limit": limit,
+        "no_proxy": no_proxy,
+        "ipv4": ipv4,
+        "data": [],
+    }

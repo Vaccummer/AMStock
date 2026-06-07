@@ -15,7 +15,10 @@ from amstock.exceptions import ConfigurationError
 DEFAULT_LANGUAGE = "zh-CN"
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_STORE_ADMIN_TOKEN = "amstock-store-admin-token"
-CLI_CONFIG_RELATIVE_PATH = Path("config") / "cli.toml"
+AMSTOCK_HOME_ENV = "AMSTOCK_HOME"
+AMSTOCK_LEGACY_ROOT_ENV = "AMSTOCK_ROOT"
+CONFIG_RELATIVE_PATH = Path("config") / "config.toml"
+LEGACY_CLI_CONFIG_RELATIVE_PATH = Path("config") / "cli.toml"
 DEFAULT_DATABASE_RELATIVE_PATH = Path("data") / "amstock.sqlite3"
 
 
@@ -27,69 +30,155 @@ class AppSettings:
     language: str = DEFAULT_LANGUAGE
     timezone: str = DEFAULT_TIMEZONE
     store_admin_token: str = DEFAULT_STORE_ADMIN_TOKEN
+    biying_licences: tuple[str, ...] = ()
+    biying_base_url: str = "https://api.biyingapi.com"
+    biying_timeout: float = 20.0
+
+
+def default_config_toml() -> str:
+    """Return a default AMStock config template."""
+
+    return """
+[app]
+language = "zh-CN"
+timezone = "Asia/Shanghai"
+
+[database]
+path = "data/amstock.sqlite3"
+
+[credentials.store]
+admin_token = "amstock-store-admin-token"
+
+[credentials.biying]
+licences = []
+base_url = "https://api.biyingapi.com"
+timeout = 20
+""".strip() + "\n"
+
+
+def amstock_home() -> Path:
+    """Return the configured AMStock home directory."""
+
+    value = os.environ.get(AMSTOCK_HOME_ENV)
+    if value is None or not value.strip():
+        value = "~/.amstock"
+    home = Path(value).expanduser()
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        msg = f"could not create {AMSTOCK_HOME_ENV}: {home}"
+        raise ConfigurationError(msg) from exc
+    return home
 
 
 def amstock_root() -> Path:
-    """Return the configured AMStock root directory."""
+    """Return the configured AMStock root directory.
 
-    value = os.environ.get("AMSTOCK_ROOT")
+    Kept for compatibility with older code; new configuration uses AMSTOCK_HOME.
+    """
+
+    return amstock_home()
+
+
+def legacy_amstock_root() -> Path | None:
+    """Return the legacy AMSTOCK_ROOT directory when explicitly configured."""
+
+    value = os.environ.get(AMSTOCK_LEGACY_ROOT_ENV)
     if value is None or not value.strip():
-        raise ConfigurationError("AMSTOCK_ROOT is required")
+        return None
     root = Path(value).expanduser()
     try:
         root.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        msg = f"could not create AMSTOCK_ROOT: {root}"
+        msg = f"could not create {AMSTOCK_LEGACY_ROOT_ENV}: {root}"
         raise ConfigurationError(msg) from exc
     return root
 
 
+def config_path(home: Path | None = None) -> Path:
+    """Return the primary config file path for an AMStock home."""
+
+    resolved_home = amstock_home() if home is None else home
+    return resolved_home / CONFIG_RELATIVE_PATH
+
+
 def cli_config_path(root: Path | None = None) -> Path:
-    """Return the CLI config file path for an AMStock root."""
+    """Return the legacy CLI config file path."""
 
-    resolved_root = amstock_root() if root is None else root
-    return resolved_root / CLI_CONFIG_RELATIVE_PATH
+    resolved_root = amstock_home() if root is None else root
+    return resolved_root / LEGACY_CLI_CONFIG_RELATIVE_PATH
 
 
-def default_database_url(root: Path | None = None) -> str:
+def default_database_url(home: Path | None = None) -> str:
     """Return the default SQLite database URL."""
 
-    resolved_root = amstock_root() if root is None else root
-    return sqlite_url_from_path(resolved_root / DEFAULT_DATABASE_RELATIVE_PATH)
+    resolved_home = amstock_home() if home is None else home
+    return sqlite_url_from_path(resolved_home / DEFAULT_DATABASE_RELATIVE_PATH)
 
 
 def load_settings() -> AppSettings:
-    """Load settings from AMSTOCK_ROOT/config/cli.toml."""
+    """Load settings from AMSTOCK_HOME/config/config.toml."""
 
-    root = amstock_root()
-    config = load_cli_config(root)
+    home = amstock_home()
+    path = resolve_config_path(home)
+    config = load_config_file(path)
+    config_root = path.parent.parent
     return AppSettings(
-        database_url=resolve_database_url(root, config),
+        database_url=resolve_database_url(config_root, config),
         language=get_nested_string(config, ("app", "language"), DEFAULT_LANGUAGE),
         timezone=get_nested_string(config, ("app", "timezone"), DEFAULT_TIMEZONE),
-        store_admin_token=get_nested_string(
+        store_admin_token=resolve_store_admin_token(config),
+        biying_licences=resolve_biying_licences(config),
+        biying_base_url=get_nested_string(
             config,
-            ("store", "admin_token"),
-            DEFAULT_STORE_ADMIN_TOKEN,
+            ("credentials", "biying", "base_url"),
+            "https://api.biyingapi.com",
         ),
+        biying_timeout=get_nested_float(config, ("credentials", "biying", "timeout"), 20.0),
     )
 
 
 def load_cli_config(root: Path) -> dict[str, Any]:
-    """Load the required CLI TOML config."""
+    """Load a legacy CLI TOML config."""
 
-    config_path = cli_config_path(root)
-    if not config_path.exists():
-        msg = f"CLI config file is required: {config_path}"
+    return load_config_file(cli_config_path(root))
+
+
+def resolve_config_path(home: Path) -> Path:
+    """Return the first available config path, preferring the new location."""
+
+    primary = config_path(home)
+    if primary.exists():
+        return primary
+
+    legacy_under_home = cli_config_path(home)
+    if legacy_under_home.exists():
+        return legacy_under_home
+
+    legacy_root = legacy_amstock_root()
+    if legacy_root is not None:
+        legacy_path = cli_config_path(legacy_root)
+        if legacy_path.exists():
+            return legacy_path
+
+    msg = f"config file is required: {primary}"
+    raise ConfigurationError(msg)
+
+
+def load_config_file(path: Path) -> dict[str, Any]:
+    """Load a TOML config file."""
+
+    if not path.exists():
+        msg = f"config file is required: {path}"
         raise ConfigurationError(msg)
     try:
-        with config_path.open("rb") as file:
+        with path.open("rb") as file:
             return tomllib.load(file)
     except tomllib.TOMLDecodeError as exc:
-        msg = f"invalid CLI config TOML: {config_path}"
+        msg = f"invalid config TOML: {path}"
         raise ConfigurationError(msg) from exc
     except OSError as exc:
-        msg = f"could not read CLI config file: {config_path}"
+        msg = f"could not read config file: {path}"
         raise ConfigurationError(msg) from exc
 
 
@@ -109,7 +198,7 @@ def resolve_database_url(root: Path, config: dict[str, Any]) -> str:
 
 
 def resolve_sqlite_database_url(root: Path, database_url: str) -> str:
-    """Resolve a SQLite URL's database path against AMSTOCK_ROOT when relative."""
+    """Resolve a SQLite URL's database path against AMSTOCK_HOME when relative."""
 
     url = make_url(database_url)
     if url.drivername not in {"sqlite", "sqlite+pysqlite"}:
@@ -130,7 +219,7 @@ def sqlite_url_from_path(path: Path) -> str:
 
 
 def resolve_root_relative_path(root: Path, value: str) -> Path:
-    """Resolve a path from TOML, using AMSTOCK_ROOT for relative values."""
+    """Resolve a path from TOML, using AMSTOCK_HOME for relative values."""
 
     path = Path(value).expanduser()
     if path.is_absolute():
@@ -162,3 +251,49 @@ def get_nested_string(config: dict[str, Any], keys: tuple[str, ...], default: st
     if not isinstance(current, str) or not current.strip():
         return default
     return current
+
+
+def get_nested_float(config: dict[str, Any], keys: tuple[str, ...], default: float) -> float:
+    """Return a nested float setting."""
+
+    current: object = config
+    for key in keys:
+        if not isinstance(current, dict):
+            return default
+        current = current.get(key)
+    if isinstance(current, int | float):
+        return float(current)
+    if isinstance(current, str) and current.strip():
+        try:
+            return float(current)
+        except ValueError:
+            return default
+    return default
+
+
+def resolve_store_admin_token(config: dict[str, Any]) -> str:
+    """Resolve the local store admin token from new or legacy config sections."""
+
+    token = get_nested_string(config, ("credentials", "store", "admin_token"), "")
+    if token:
+        return token
+    return get_nested_string(config, ("store", "admin_token"), DEFAULT_STORE_ADMIN_TOKEN)
+
+
+def resolve_biying_licences(config: dict[str, Any]) -> tuple[str, ...]:
+    """Resolve Biying licences from config."""
+
+    credentials = get_nested_mapping(config, ("credentials", "biying"))
+    licences = credentials.get("licences")
+    if isinstance(licences, list):
+        return tuple(str(item).strip() for item in licences if str(item).strip())
+
+    licence = credentials.get("licence")
+    if isinstance(licence, str) and licence.strip():
+        return (licence.strip(),)
+
+    legacy = get_nested_string(config, ("biying", "licences"), "")
+    if legacy:
+        return tuple(item.strip() for item in legacy.replace(";", ",").split(",") if item.strip())
+
+    return ()

@@ -1,6 +1,6 @@
 ---
 name: amstock-market-quote
-description: Fetch China A-share quotes, market-wide spot data, exchange summaries, order book snapshots, and individual stock basics through the unified AMStock CLI. Use when the user asks for current A-share prices, quote snapshots, stock basic information, Shanghai/Shenzhen market summaries, or wants to inspect a stock before deeper analysis.
+description: Fetch China A-share quotes, market-wide spot data, exchange summaries, order book snapshots, stock pools, capital-flow summaries, market breadth, sentiment summaries, index quotes, fund quotes, and individual stock basics through the unified AMStock CLI. Use when the user asks for current A-share prices, quote snapshots, stock basic information, Shanghai/Shenzhen market summaries, broad market strength, short-term market mood, ETF realtime quotes, or wants to inspect a stock before deeper analysis.
 ---
 
 # AMStock Market Quote
@@ -9,7 +9,7 @@ Use `uv run amstock ...` from the AMStock project root. Commands return one JSON
 
 Prefer `--limit` for broad datasets so the answer stays readable.
 If Eastmoney requests fail because of local proxy or IPv6 routing, add `--no-proxy --ipv4`.
-For realtime quotes, level-5 order books, tick trades, and stock pools, use Biying-backed `quote` commands. Provide Biying licences with `--licences` or `AMSTOCK_BIYING_LICENCES`.
+For realtime quotes, level-5 order books, tick trades, stock pools, market breadth, sentiment, index quotes, and fund quotes, use Biying-backed commands. Provide Biying licences with `--licences`, `AMSTOCK_BIYING_LICENCES`, or `[credentials.biying] licences = [...]` in `AMSTOCK_HOME/config/config.toml`.
 
 ## Commands
 
@@ -39,12 +39,30 @@ Fetch Biying realtime quote and level-5 order book:
 uv run amstock quote stock --symbol 000001 --licences licence1,licence2
 uv run amstock quote five --symbol 000001 --licences licence1,licence2
 uv run amstock quote ticks --symbol 000001 --licences licence1,licence2 --limit 20
+uv run amstock quote batch --symbols 000063,600519 --licences licence1,licence2
+uv run amstock quote all --feed network --licences licence1,licence2 --limit 5000
 ```
 
 Fetch event stock pools:
 
 ```powershell
 uv run amstock quote pool --kind limit-up --date 2024-01-10 --licences licence1,licence2 --limit 20
+uv run amstock quote pool --kind failed-limit-up --date 2024-01-10 --licences licence1,licence2 --limit 20
+```
+
+Summarize capital flow, market breadth, and short-term sentiment:
+
+```powershell
+uv run amstock quote flow-summary --symbol 000063 --days 5 --licences licence1,licence2
+uv run amstock quote breadth --licences licence1,licence2
+uv run amstock quote sentiment --date 2024-01-10 --licences licence1,licence2
+```
+
+Fetch index and fund realtime quotes:
+
+```powershell
+uv run amstock index quote --symbol 000001.SH --licences licence1,licence2
+uv run amstock fund quote --symbol 159995 --licences licence1,licence2
 ```
 
 ## Mapping
@@ -53,6 +71,11 @@ uv run amstock quote pool --kind limit-up --date 2024-01-10 --licences licence1,
 - `stock basic`: BaoStock `query_stock_basic(code=...)`
 - `sse-summary`: `ak.stock_sse_summary()`
 - `szse-summary`: `ak.stock_szse_summary(date=...)`
-- `quote stock/five/ticks/pool`: Biying API datasets
+- `quote stock/five/ticks/batch/all/pool`: Biying API datasets
+- `quote flow-summary`: Biying `fund-flow` plus local AMStock aggregation
+- `quote breadth`: Biying all-market realtime quotes plus local AMStock aggregation
+- `quote sentiment`: Biying stock pools plus local AMStock aggregation
+- `index quote`: Biying `index-realtime`
+- `fund quote`: Biying `fund-realtime`
 
 Treat source data as reference data, not investment advice.

@@ -6,9 +6,10 @@ description: Fetch China A-share concept, industry, and sector relationship data
 # AMStock Sector
 
 Use `uv run amstock sector ...` from the AMStock project root. Commands emit JSON.
-Use BaoStock for broad industry classification and Biying for concept/industry trees, stock membership, and stock-to-concept lookups. Provide Biying licences with `--licences` or `AMSTOCK_BIYING_LICENCES`.
+Use BaoStock for broad industry classification and Biying for concept/industry trees, stock membership, and stock-to-concept lookups. Provide Biying licences with `--licences`, `AMSTOCK_BIYING_LICENCES`, or `[credentials.biying] licences = [...]` in `AMSTOCK_HOME/config/config.toml`.
 
 Use `--limit` on broad lists. For `sector stocks`, pass the Biying index, industry, or concept code returned by `sector list --source biying`.
+There is no Biying HS endpoint for sector capital-flow rankings in the checked documentation; do not present `sector flow` as available from Biying.
 
 ## Commands
 
@@ -29,6 +30,8 @@ Find concepts, industries, and indices for one stock:
 
 ```powershell
 uv run amstock sector concepts --symbol 000001 --licences licence1,licence2 --limit 30
+uv run amstock stock concepts --symbol 000001 --licences licence1,licence2 --limit 30
+uv run amstock stock indexes --symbol 000001 --licences licence1,licence2 --limit 30
 ```
 
 Use the legacy AKShare skill script only when the user specifically needs Eastmoney board names or AKShare concept constituents that have not been promoted to the unified CLI:
@@ -44,6 +47,8 @@ uv run python skills/amstock-sector/scripts/sector.py --kind concept-cons --symb
 - `sector list --source biying`: Biying `concept-tree`
 - `sector stocks`: Biying `concept-stocks`
 - `sector concepts`: Biying `stock-concepts`
+- `stock concepts`: Biying `stock-concepts`
+- `stock indexes`: Biying `stock-indexes`
 - Legacy script: AKShare `stock_board_concept_*_em` and `stock_board_industry_*_em`
 
 Treat source data as reference data, not investment advice.

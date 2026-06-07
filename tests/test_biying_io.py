@@ -31,14 +31,44 @@ def test_load_biying_licences_splits_common_separators() -> None:
     ]
 
 
-def test_load_biying_licences_requires_value(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_biying_licences_requires_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A missing Biying licence fails before any HTTP request is attempted."""
 
     monkeypatch.delenv("AMSTOCK_BIYING_LICENCES", raising=False)
     monkeypatch.delenv("AMSTOCK_BIYING_LICENCE", raising=False)
+    monkeypatch.setenv("AMSTOCK_HOME", str(tmp_path))
+    monkeypatch.delenv("AMSTOCK_ROOT", raising=False)
 
     with pytest.raises(ValueError, match="Biying licence is required"):
         load_biying_licences()
+
+
+def test_load_biying_licences_reads_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Biying licences can be read from AMSTOCK_HOME/config/config.toml."""
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        """
+[database]
+path = "data/test.sqlite3"
+
+[credentials.biying]
+licences = ["alpha", "beta"]
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("AMSTOCK_BIYING_LICENCES", raising=False)
+    monkeypatch.delenv("AMSTOCK_BIYING_LICENCE", raising=False)
+    monkeypatch.setenv("AMSTOCK_HOME", str(tmp_path))
+
+    assert load_biying_licences() == ["alpha", "beta"]
 
 
 def test_rotate_biying_licences_uses_configured_state_file(
@@ -74,6 +104,16 @@ def test_build_biying_url_encodes_path_and_redacts_later() -> None:
         "https://api.biyingapi.com/hslt/sectors/"
         "TFG%E6%9D%BF%E5%9D%97%E8%B6%8B%E5%8A%BF/lic-1"
     )
+
+
+def test_build_biying_url_uses_endpoint_base_url() -> None:
+    """Some Biying endpoints live on the all-market subdomain."""
+
+    endpoint = BIYING_ENDPOINTS["stock-all-network"]
+
+    url = build_biying_url(endpoint, params={}, licence="lic-1")
+
+    assert url == "https://all.biyingapi.com/hsrl/real/all/lic-1"
 
 
 def test_normalize_biying_market_symbol_infers_common_suffixes() -> None:

@@ -11,9 +11,10 @@ transactions can be recorded.
 
 The store persists transaction records in the configured AMStock database and calculates
 positions and returns from those records using FIFO cost accounting.
-Configuration is loaded from `AMSTOCK_ROOT/config/cli.toml`; relative database paths are
-resolved from `AMSTOCK_ROOT`.
-`AMSTOCK_ROOT` must be set, and `config/cli.toml` must exist.
+Configuration is loaded from `AMSTOCK_HOME/config/config.toml`; relative database paths are
+resolved from `AMSTOCK_HOME`. If `AMSTOCK_HOME` is not set, it defaults to `~/.amstock`.
+Run `uv run amstock config init` to create a template config. The legacy
+`AMSTOCK_ROOT/config/cli.toml` path remains supported as a compatibility fallback.
 
 ## Record Trades
 

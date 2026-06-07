@@ -23,7 +23,7 @@ def test_store_cli_records_and_summarizes_user_portfolio(
 ) -> None:
     """The CLI emits JSON and persists a local user's ledger."""
 
-    configure_amstock_root(tmp_path, monkeypatch)
+    configure_amstock_home(tmp_path, monkeypatch)
     runner = CliRunner()
 
     create = runner.invoke(
@@ -84,7 +84,7 @@ def test_store_cli_rejects_invalid_admin_token(
 ) -> None:
     """Admin commands require the configured token."""
 
-    configure_amstock_root(tmp_path, monkeypatch)
+    configure_amstock_home(tmp_path, monkeypatch)
     result = CliRunner().invoke(
         store_cli.app,
         [
@@ -104,19 +104,20 @@ def test_store_cli_rejects_invalid_admin_token(
     assert payload["error"]["message"] == "invalid admin token"
 
 
-def configure_amstock_root(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Create a CLI config under a temporary AMSTOCK_ROOT."""
+def configure_amstock_home(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Create a config under a temporary AMSTOCK_HOME."""
 
     config_dir = root / "config"
     config_dir.mkdir()
-    (config_dir / "cli.toml").write_text(
+    (config_dir / "config.toml").write_text(
         f"""
 [database]
 path = "data/store.sqlite3"
 
-[store]
+[credentials.store]
 admin_token = "{ADMIN_TOKEN}"
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("AMSTOCK_ROOT", str(root))
+    monkeypatch.setenv("AMSTOCK_HOME", str(root))
+    monkeypatch.delenv("AMSTOCK_ROOT", raising=False)

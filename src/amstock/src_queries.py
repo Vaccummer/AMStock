@@ -94,7 +94,10 @@ def capabilities_payload() -> dict[str, object]:
                 "description": (
                     "Fetch high-value A-share/BJ/STAR/index/fund datasets through Biying API."
                 ),
-                "required": ["--dataset", "--licences or AMSTOCK_BIYING_LICENCES"],
+                "required": [
+                    "--dataset",
+                    "--licences, AMSTOCK_BIYING_LICENCES, or configured Biying credentials",
+                ],
                 "source": "biying",
                 "datasets": sorted(BIYING_ENDPOINTS),
             },

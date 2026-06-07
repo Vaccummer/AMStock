@@ -1,6 +1,6 @@
 ---
 name: amstock-store-admin
-description: Manage AMStock local store users with the admin token. Use when the user wants to create, list, rename, activate, or deactivate local portfolio ledger users. Admin commands require the token configured in `AMSTOCK_ROOT/config/cli.toml`.
+description: Manage AMStock local store users with the admin token. Use when the user wants to create, list, rename, activate, or deactivate local portfolio ledger users. Admin commands require the token configured in `AMSTOCK_HOME/config/config.toml`.
 ---
 
 # AMStock Store Admin
@@ -9,10 +9,12 @@ Use `uv run amstock portfolio admin user ...` from the AMStock project root. The
 local ledger users only. They do not authenticate OS users or grant application sessions.
 
 Admin commands require `--admin-token`. The configured token is read from
-`AMSTOCK_ROOT/config/cli.toml`.
+`AMSTOCK_HOME/config/config.toml`. If `AMSTOCK_HOME` is not set, it defaults to
+`~/.amstock`.
 
-`AMSTOCK_ROOT` must be set. If it is missing, cannot be created as a directory, or
-`config/cli.toml` is missing, the CLI exits with a JSON configuration error.
+Run `uv run amstock config init` to create a template config. If the config file
+is missing or invalid, the CLI exits with a JSON configuration error. The legacy
+`AMSTOCK_ROOT/config/cli.toml` path remains supported as a compatibility fallback.
 
 Example config:
 
@@ -20,11 +22,11 @@ Example config:
 [database]
 path = "data/amstock.sqlite3"
 
-[store]
+[credentials.store]
 admin_token = "amstock-store-admin-token"
 ```
 
-`database.path` may be relative. Relative database paths are resolved from `AMSTOCK_ROOT`.
+`database.path` may be relative. Relative database paths are resolved from `AMSTOCK_HOME`.
 
 ## Commands
 

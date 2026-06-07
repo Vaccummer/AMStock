@@ -13,6 +13,8 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from amstock.akshare_io import normalize_a_stock_code
+from amstock.config import amstock_home, load_settings
+from amstock.exceptions import ConfigurationError
 
 DEFAULT_BIYING_BASE_URL = "https://api.biyingapi.com"
 BIYING_LICENCE_ENV = "AMSTOCK_BIYING_LICENCES"
@@ -31,6 +33,7 @@ class BiyingEndpoint:
     description: str
     required: tuple[str, ...] = ()
     query: tuple[str, ...] = ()
+    base_url: str | None = None
 
 
 BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
@@ -90,6 +93,26 @@ BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
         "company profile",
         required=("symbol",),
     ),
+    "stock-indexes": BiyingEndpoint(
+        "/hscp/sszs/{symbol}/{licence}",
+        "indexes for one stock",
+        required=("symbol",),
+    ),
+    "management": BiyingEndpoint(
+        "/hscp/ljgg/{symbol}/{licence}",
+        "historical senior management members",
+        required=("symbol",),
+    ),
+    "directors": BiyingEndpoint(
+        "/hscp/ljds/{symbol}/{licence}",
+        "historical board members",
+        required=("symbol",),
+    ),
+    "supervisors": BiyingEndpoint(
+        "/hscp/ljjj/{symbol}/{licence}",
+        "historical supervisory board members",
+        required=("symbol",),
+    ),
     "dividend": BiyingEndpoint(
         "/hscp/jnfh/{symbol}/{licence}",
         "recent dividends",
@@ -103,6 +126,16 @@ BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
     "unlock": BiyingEndpoint(
         "/hscp/jjxs/{symbol}/{licence}",
         "restricted-share unlocks",
+        required=("symbol",),
+    ),
+    "quarterly-profit": BiyingEndpoint(
+        "/hscp/jdlr/{symbol}/{licence}",
+        "recent quarterly profit data",
+        required=("symbol",),
+    ),
+    "quarterly-cashflow": BiyingEndpoint(
+        "/hscp/jdxj/{symbol}/{licence}",
+        "recent quarterly cash-flow data",
         required=("symbol",),
     ),
     "performance-forecast": BiyingEndpoint(
@@ -162,6 +195,16 @@ BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
         required=("stock_codes",),
         query=("stock_codes",),
     ),
+    "stock-all-broker": BiyingEndpoint(
+        "/hsrl/ssjy/all/{licence}",
+        "all-stock realtime quotes from broker feed",
+        base_url="https://all.biyingapi.com",
+    ),
+    "stock-all-network": BiyingEndpoint(
+        "/hsrl/real/all/{licence}",
+        "all-stock realtime quotes from network feed",
+        base_url="https://all.biyingapi.com",
+    ),
     "fund-flow": BiyingEndpoint(
         "/hsstock/history/transaction/{symbol}/{licence}",
         "stock capital-flow transaction data",
@@ -191,6 +234,30 @@ BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
         "market quote indicators",
         required=("market_symbol",),
         query=("st", "et"),
+    ),
+    "stock-tech-macd": BiyingEndpoint(
+        "/hsstock/history/macd/{market_symbol}/{period}/{adjust}/{licence}",
+        "historical stock MACD indicator",
+        required=("market_symbol", "period", "adjust"),
+        query=("st", "et", "lt"),
+    ),
+    "stock-tech-ma": BiyingEndpoint(
+        "/hsstock/history/ma/{market_symbol}/{period}/{adjust}/{licence}",
+        "historical stock MA indicator",
+        required=("market_symbol", "period", "adjust"),
+        query=("st", "et", "lt"),
+    ),
+    "stock-tech-boll": BiyingEndpoint(
+        "/hsstock/history/boll/{market_symbol}/{period}/{adjust}/{licence}",
+        "historical stock BOLL indicator",
+        required=("market_symbol", "period", "adjust"),
+        query=("st", "et", "lt"),
+    ),
+    "stock-tech-kdj": BiyingEndpoint(
+        "/hsstock/history/kdj/{market_symbol}/{period}/{adjust}/{licence}",
+        "historical stock KDJ indicator",
+        required=("market_symbol", "period", "adjust"),
+        query=("st", "et", "lt"),
     ),
     # Financial statements and holder tables with date ranges.
     "instrument": BiyingEndpoint(
@@ -253,9 +320,39 @@ BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
         "realtime index quote",
         required=("index",),
     ),
+    "index-latest": BiyingEndpoint(
+        "/hsindex/latest/{index}/{period}/{licence}",
+        "latest index bars",
+        required=("index", "period"),
+        query=("lt",),
+    ),
     "index-history": BiyingEndpoint(
         "/hsindex/history/{index}/{period}/{licence}",
         "historical index bars",
+        required=("index", "period"),
+        query=("st", "et", "lt"),
+    ),
+    "index-tech-macd": BiyingEndpoint(
+        "/hsindex/history/macd/{index}/{period}/{licence}",
+        "historical index MACD indicator",
+        required=("index", "period"),
+        query=("st", "et", "lt"),
+    ),
+    "index-tech-ma": BiyingEndpoint(
+        "/hsindex/history/ma/{index}/{period}/{licence}",
+        "historical index MA indicator",
+        required=("index", "period"),
+        query=("st", "et", "lt"),
+    ),
+    "index-tech-boll": BiyingEndpoint(
+        "/hsindex/history/boll/{index}/{period}/{licence}",
+        "historical index BOLL indicator",
+        required=("index", "period"),
+        query=("st", "et", "lt"),
+    ),
+    "index-tech-kdj": BiyingEndpoint(
+        "/hsindex/history/kdj/{index}/{period}/{licence}",
+        "historical index KDJ indicator",
         required=("index", "period"),
         query=("st", "et", "lt"),
     ),
@@ -279,11 +376,64 @@ BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
         "Beijing stock level-5 order book",
         required=("symbol",),
     ),
+    "bj-index-realtime": BiyingEndpoint(
+        "/bj/index/real/time/{index}/{licence}",
+        "Beijing index realtime quote",
+        required=("index",),
+    ),
     "bj-history": BiyingEndpoint(
         "/bj/history/{market_symbol}/{period}/{adjust}/{licence}",
         "Beijing stock historical bars",
         required=("market_symbol", "period", "adjust"),
         query=("st", "et", "lt"),
+    ),
+    "bj-financial-balance": BiyingEndpoint(
+        "/bj/financial/balance/{market_symbol}/{licence}",
+        "Beijing balance sheet",
+        required=("market_symbol",),
+        query=("st", "et"),
+    ),
+    "bj-financial-income": BiyingEndpoint(
+        "/bj/financial/income/{market_symbol}/{licence}",
+        "Beijing income statement",
+        required=("market_symbol",),
+        query=("st", "et"),
+    ),
+    "bj-financial-cashflow": BiyingEndpoint(
+        "/bj/financial/cashflow/{market_symbol}/{licence}",
+        "Beijing cash-flow statement",
+        required=("market_symbol",),
+        query=("st", "et"),
+    ),
+    "bj-financial-pershareindex": BiyingEndpoint(
+        "/bj/financial/pershareindex/{market_symbol}/{licence}",
+        "Beijing per-share and key financial indicators",
+        required=("market_symbol",),
+        query=("st", "et"),
+    ),
+    "bj-capital": BiyingEndpoint(
+        "/bj/financial/capital/{market_symbol}/{licence}",
+        "Beijing share capital table",
+        required=("market_symbol",),
+        query=("st", "et"),
+    ),
+    "bj-financial-topholder": BiyingEndpoint(
+        "/bj/financial/topholder/{market_symbol}/{licence}",
+        "Beijing top shareholders with date range",
+        required=("market_symbol",),
+        query=("st", "et"),
+    ),
+    "bj-financial-flowholder": BiyingEndpoint(
+        "/bj/financial/flowholder/{market_symbol}/{licence}",
+        "Beijing top float shareholders with date range",
+        required=("market_symbol",),
+        query=("st", "et"),
+    ),
+    "bj-holder-count": BiyingEndpoint(
+        "/bj/financial/hm/{market_symbol}/{licence}",
+        "Beijing shareholder count with date range",
+        required=("market_symbol",),
+        query=("st", "et"),
     ),
     "kc-stock-list": BiyingEndpoint("/kc/list/all/{licence}", "STAR Market stock list"),
     "kc-stock-realtime": BiyingEndpoint(
@@ -311,6 +461,8 @@ def fetch_biying_dataset(
     """Fetch one mapped Biying dataset and return an AMStock JSON payload."""
 
     endpoint = endpoint_for_dataset(dataset)
+    base_url = resolve_biying_base_url(base_url)
+    timeout = resolve_biying_timeout(timeout)
     licences = rotate_biying_licences(load_biying_licences(licences_value))
     normalized_params = normalize_biying_params(params)
     request_params = select_biying_params(endpoint, normalized_params)
@@ -371,14 +523,50 @@ def load_biying_licences(value: str | None = None) -> list[str]:
     raw = value
     if raw is None:
         raw = os.environ.get(BIYING_LICENCE_ENV) or os.environ.get(BIYING_LEGACY_LICENCE_ENV)
+    if raw is None:
+        configured = load_configured_biying_licences()
+        if configured:
+            return configured
     licences = [item for item in re.split(r"[\s,;]+", raw or "") if item]
     if not licences:
         msg = (
-            "Biying licence is required; pass --licences or set "
-            f"{BIYING_LICENCE_ENV}=licence1,licence2"
+            "Biying licence is required; pass --licences, set "
+            f"{BIYING_LICENCE_ENV}=licence1,licence2, or configure "
+            "credentials.biying.licences in AMSTOCK_HOME/config/config.toml"
         )
         raise ValueError(msg)
     return licences
+
+
+def load_configured_biying_licences() -> list[str]:
+    """Load Biying licences from AMStock config when available."""
+
+    try:
+        return list(load_settings().biying_licences)
+    except ConfigurationError:
+        return []
+
+
+def resolve_biying_base_url(value: str) -> str:
+    """Resolve the Biying base URL from config when the default is used."""
+
+    if value != DEFAULT_BIYING_BASE_URL:
+        return value
+    try:
+        return load_settings().biying_base_url
+    except ConfigurationError:
+        return value
+
+
+def resolve_biying_timeout(value: float) -> float:
+    """Resolve Biying timeout from config when the default is used."""
+
+    if value != DEFAULT_TIMEOUT_SECONDS:
+        return value
+    try:
+        return load_settings().biying_timeout
+    except ConfigurationError:
+        return value
 
 
 def rotate_biying_licences(licences: list[str]) -> list[str]:
@@ -408,11 +596,7 @@ def biying_rotation_state_path() -> Path | None:
     if explicit and explicit.strip():
         return Path(explicit).expanduser()
 
-    root = os.environ.get("AMSTOCK_ROOT")
-    if root and root.strip():
-        return Path(root).expanduser() / "data" / "biying_licence_rotation.json"
-
-    return None
+    return amstock_home() / "data" / "biying_licence_rotation.json"
 
 
 def read_biying_rotation_index(path: Path) -> int:
@@ -556,7 +740,7 @@ def build_biying_url(
         if key in values and values[key] not in {"", "None"}
     }
     query_text = urlencode(query, doseq=False)
-    prefix = base_url.rstrip("/")
+    prefix = (endpoint.base_url or base_url).rstrip("/")
     return f"{prefix}{path}" if not query_text else f"{prefix}{path}?{query_text}"
 
 
