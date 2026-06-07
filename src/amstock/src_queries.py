@@ -11,6 +11,7 @@ from amstock.akshare_io import (
     sina_stock_code,
 )
 from amstock.baostock_io import baostock_session, normalize_baostock_code, result_set_payload
+from amstock.biying_io import BIYING_ENDPOINTS
 
 ADJUST_MAP = {
     "none": "",
@@ -87,6 +88,15 @@ def capabilities_payload() -> dict[str, object]:
                     "Eastmoney board rankings."
                 ),
                 "source": "baostock",
+            },
+            {
+                "name": "biying",
+                "description": (
+                    "Fetch high-value A-share/BJ/STAR/index/fund datasets through Biying API."
+                ),
+                "required": ["--dataset", "--licences or AMSTOCK_BIYING_LICENCES"],
+                "source": "biying",
+                "datasets": sorted(BIYING_ENDPOINTS),
             },
         ],
         "common_options": ["--limit", "--no-proxy", "--ipv4"],

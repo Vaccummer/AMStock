@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 import typer
 
 from amstock.akshare_io import emit_json, error_payload
+from amstock.biying_io import DEFAULT_TIMEOUT_SECONDS, fetch_biying_dataset
 from amstock.src_queries import (
     capabilities_payload,
     fetch_a_spot,
@@ -187,6 +188,95 @@ def industry_list(
 
     _run_json(
         lambda: fetch_industry_list(limit=limit, no_proxy=no_proxy, ipv4=ipv4),
+    )
+
+
+@app.command("biying")
+def biying(
+    dataset: Annotated[str, typer.Option("--dataset", help="Biying dataset name.")],
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="Six-digit stock code for stock-scoped datasets."),
+    ] = None,
+    market_symbol: Annotated[
+        str | None,
+        typer.Option("--market-symbol", help="Market symbol such as 000001.SZ."),
+    ] = None,
+    index: Annotated[
+        str | None,
+        typer.Option("--index", help="Index symbol with suffix, e.g. 000001.SH."),
+    ] = None,
+    fund: Annotated[str | None, typer.Option("--fund", help="Fund code.")] = None,
+    sector: Annotated[str | None, typer.Option("--sector", help="Sector name.")] = None,
+    code: Annotated[
+        str | None,
+        typer.Option("--code", help="Biying index, industry, or concept code."),
+    ] = None,
+    date: Annotated[
+        str | None,
+        typer.Option("--date", help="Trading date, usually YYYY-MM-DD for stock pools."),
+    ] = None,
+    period: Annotated[
+        str,
+        typer.Option("--period", help="Bar period such as d, w, m, 1m, 5m, 15m, 30m, 60m."),
+    ] = "d",
+    adjust: Annotated[
+        str,
+        typer.Option("--adjust", help="Adjustment type used by Biying, commonly n/q/h."),
+    ] = "n",
+    st: Annotated[str | None, typer.Option("--st", help="Start date/time query parameter.")] = None,
+    et: Annotated[str | None, typer.Option("--et", help="End date/time query parameter.")] = None,
+    lt: Annotated[
+        int | None,
+        typer.Option("--lt", help="Latest row count query parameter."),
+    ] = None,
+    stock_codes: Annotated[
+        str | None,
+        typer.Option("--stock-codes", help="Comma-separated stock codes for multi-quote datasets."),
+    ] = None,
+    licences: Annotated[
+        str | None,
+        typer.Option(
+            "--licences",
+            help="Biying licences separated by comma, semicolon, or whitespace.",
+        ),
+    ] = None,
+    base_url: Annotated[
+        str,
+        typer.Option("--base-url", help="Biying API base URL."),
+    ] = "https://api.biyingapi.com",
+    timeout: Annotated[
+        float,
+        typer.Option("--timeout", help="HTTP timeout in seconds."),
+    ] = DEFAULT_TIMEOUT_SECONDS,
+    limit: LimitOption = None,
+) -> None:
+    """Fetch a Biying dataset."""
+
+    params: dict[str, str | int | None] = {
+        "symbol": symbol,
+        "market_symbol": market_symbol or symbol,
+        "index": index,
+        "fund": fund,
+        "sector": sector,
+        "code": code,
+        "date": date,
+        "period": period,
+        "adjust": adjust,
+        "st": st,
+        "et": et,
+        "lt": lt,
+        "stock_codes": stock_codes,
+    }
+    _run_json(
+        lambda: fetch_biying_dataset(
+            dataset=dataset,
+            params=params,
+            licences_value=licences,
+            base_url=base_url,
+            timeout=timeout,
+            limit=limit,
+        ),
     )
 
 

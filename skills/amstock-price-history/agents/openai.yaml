@@ -1,4 +1,4 @@
 interface:
   display_name: "AMStock Price History"
-  short_description: "Fetch A-share historical K-line data with AKShare."
-  default_prompt: "Use this skill to fetch adjusted or unadjusted A-share historical K-line data."
+  short_description: "Fetch A-share historical K-line data with AMStock."
+  default_prompt: "Use this skill with the unified amstock CLI to fetch adjusted or unadjusted A-share historical K-line data."
