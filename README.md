@@ -25,11 +25,13 @@ uv run amstock stock history --symbol 600519 --start-date 20250101 --end-date 20
 uv run amstock quote batch --symbols 000063,600519
 uv run amstock quote flow-summary --symbol 000063 --days 5
 uv run amstock quote pool --kind limit-up --date 2024-01-10 --limit 20
+uv run amstock quote all --source sina --limit 20
 uv run amstock quote breadth
 uv run amstock quote sentiment --date 2024-01-10
 uv run amstock index quote --symbol 000001.SH
 uv run amstock fund etf-list --limit 20
 uv run amstock fund quote --symbol 159995
+uv run amstock fund share-change --symbol 159995 --start-date 20260601 --end-date 20260605 --limit 5
 uv run amstock portfolio summary --user alice --mark 600519=1580
 uv run amstock sources capabilities
 uv run amstock_src capabilities
@@ -111,7 +113,8 @@ uv run amstock stock offering --symbol 000063 --limit 20
 uv run amstock stock management --symbol 000063 --kind directors --limit 20
 uv run amstock stock quarterly --symbol 000063 --kind profit --limit 20
 uv run amstock quote batch --symbols 000063,600519,601991
-uv run amstock quote all --feed network --limit 5000
+uv run amstock quote all --source sina --limit 5000
+uv run amstock quote all --source auto --limit 5000
 uv run amstock quote flow-summary --symbol 000063 --days 5
 uv run amstock quote intraday --symbol 000063 --period 1 --lt 240
 uv run amstock quote history-intraday --symbol 000063 --date 20240605 --period 1 --lt 240
@@ -121,7 +124,14 @@ uv run amstock quote sentiment --date 2024-01-10
 uv run amstock index intraday --symbol 000001.SH --period 1 --lt 240
 uv run amstock index tech --symbol 000001.SH --indicator ma --period d --lt 20
 uv run amstock fund quote --symbol 159995
+uv run amstock fund share-change --symbol 159995 --start-date 20260601 --end-date 20260605 --limit 5
 ```
+
+All-market realtime quotes should prefer `quote all --source sina`, backed by
+AKShare Sina `stock_zh_a_spot`. The default `--source auto` tries the Biying
+all-market endpoint first and falls back to Sina when Biying returns 429.
+`quote breadth` and the breadth portion of `quote sentiment` use the same Sina
+fallback.
 
 `amstock_src biying` remains available as a compatibility entry point:
 
@@ -133,18 +143,22 @@ Run `uv run amstock sources capabilities` to inspect the full Biying dataset lis
 
 Biying-backed unified commands now cover the high-value items from
 `tmp/note.md`: company profile, stock concepts and indexes, stock pools,
-multi-stock and all-market realtime quotes, market breadth, sentiment summary,
-stock flow summary, intraday/history-intraday data, historical limit prices,
+multi-stock realtime quotes, market breadth, sentiment summary, stock flow
+summary, intraday/history-intraday data, historical limit prices,
 quote indicators, financial statements and quarterly data, shareholder data,
 fund realtime quotes, index quotes, index intraday data, and stock/index
 technical indicators.
 
 The Biying HS documentation checked for this update did not expose direct
-interfaces for sector capital-flow rankings, ETF holdings, ETF share-change,
-ETF premium/IOPV, margin financing, northbound holdings, index valuation
+interfaces for sector capital-flow rankings, ETF holdings, ETF premium/IOPV,
+margin financing, northbound holdings, index valuation
 percentiles, sector valuation, LHB data, announcements/news, ETF PCF files, or
 index futures/options IV. Those should be added later with another data source
 instead of being faked through Biying.
+
+ETF share-change is available through AKShare-backed `fund share-change`; pass
+`--symbol` to infer the exchange and filter a single ETF, or pass `--exchange`
+to fetch the exchange-level list.
 
 Known unstable AKShare interfaces are routed directly to BaoStock in `amstock_src`
 instead of trying AKShare first and falling back at runtime. Routing is fixed per
@@ -156,7 +170,7 @@ after a runtime failure. Current direct BaoStock commands include `a-spot`,
 
 AMStock includes agent skills that prefer the unified `amstock` CLI:
 
-- `skills/amstock-market-quote`: A-share spot quotes, stock basics, exchange summaries, Biying order books, and stock pools.
+- `skills/amstock-market-quote`: A-share spot quotes, stock basics, exchange summaries, Biying order books, stock pools, market breadth, sentiment, index quotes, fund quotes, and ETF share-change.
 - `skills/amstock-price-history`: A-share daily/weekly/monthly historical K-line data.
 - `skills/amstock-fundamental`: A-share financial abstracts, statements, and Biying key indicators.
 - `skills/amstock-sector`: A-share industry classification and Biying concept/sector relationships.

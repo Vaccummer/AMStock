@@ -18,7 +18,6 @@ from amstock.exceptions import ConfigurationError
 
 DEFAULT_BIYING_BASE_URL = "https://api.biyingapi.com"
 BIYING_LICENCE_ENV = "AMSTOCK_BIYING_LICENCES"
-BIYING_LEGACY_LICENCE_ENV = "AMSTOCK_BIYING_LICENCE"
 BIYING_ROTATION_FILE_ENV = "AMSTOCK_BIYING_ROTATION_FILE"
 DEFAULT_TIMEOUT_SECONDS = 20.0
 RETRYABLE_HTTP_STATUS = {401, 403, 429, 500, 502, 503, 504}
@@ -198,12 +197,10 @@ BIYING_ENDPOINTS: dict[str, BiyingEndpoint] = {
     "stock-all-broker": BiyingEndpoint(
         "/hsrl/ssjy/all/{licence}",
         "all-stock realtime quotes from broker feed",
-        base_url="https://all.biyingapi.com",
     ),
     "stock-all-network": BiyingEndpoint(
         "/hsrl/real/all/{licence}",
         "all-stock realtime quotes from network feed",
-        base_url="https://all.biyingapi.com",
     ),
     "fund-flow": BiyingEndpoint(
         "/hsstock/history/transaction/{symbol}/{licence}",
@@ -522,7 +519,7 @@ def load_biying_licences(value: str | None = None) -> list[str]:
 
     raw = value
     if raw is None:
-        raw = os.environ.get(BIYING_LICENCE_ENV) or os.environ.get(BIYING_LEGACY_LICENCE_ENV)
+        raw = os.environ.get(BIYING_LICENCE_ENV)
     if raw is None:
         configured = load_configured_biying_licences()
         if configured:

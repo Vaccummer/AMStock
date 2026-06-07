@@ -188,13 +188,46 @@ def test_quote_all_routes_selected_feed(monkeypatch: pytest.MonkeyPatch) -> None
 
     result = CliRunner().invoke(
         cli.app,
-        ["quote", "all", "--feed", "network", "--limit", "5000"],
+        ["quote", "all", "--source", "biying", "--feed", "network", "--limit", "5000"],
     )
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["function"] == "stock-all-network"
     assert payload["limit"] == 5000
+
+
+def test_quote_all_can_use_sina_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    """All-market quotes can skip Biying and use AKShare Sina directly."""
+
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["quote", "all", "--source", "sina", "--limit", "5"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "stock_zh_a_spot"
+    assert payload["limit"] == 5
+
+
+def test_quote_all_auto_falls_back_to_sina(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Auto all-market quotes use Sina when the Biying all-market endpoint is unavailable."""
+
+    def fake_fetch_quote_all(**_: object) -> dict[str, object]:
+        raise RuntimeError("HTTP Error 429: Too Many Requests")
+
+    monkeypatch.setattr(cli, "_fetch_quote_all", fake_fetch_quote_all)
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(cli.app, ["quote", "all", "--limit", "5"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "stock_zh_a_spot"
+    assert payload["fallback_from"]["function"] == "stock-all-network"
 
 
 def test_quote_breadth_calculates_market_width(
@@ -229,6 +262,40 @@ def test_quote_breadth_calculates_market_width(
     assert summary["up_gte_9"] == 1
     assert summary["down_lte_minus_9"] == 1
     assert summary["median_change_percent"] == 0.0
+
+
+def test_quote_breadth_falls_back_to_akshare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Breadth uses AKShare if Biying all-market quotes fail."""
+
+    def fake_fetch_quote_all(**_: object) -> dict[str, object]:
+        raise RuntimeError("certificate mismatch")
+
+    def fake_akshare_dataframe(
+        function: str,
+        params: dict[str, object],
+        **_: object,
+    ) -> dict[str, object]:
+        return {
+            "ok": True,
+            "source": "akshare-test",
+            "function": function,
+            "params": params,
+            "rows": 2,
+            "data": [{"涨跌幅": "1.0"}, {"涨跌幅": "-2.0"}],
+        }
+
+    monkeypatch.setattr(cli, "_fetch_quote_all", fake_fetch_quote_all)
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(cli.app, ["quote", "breadth"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["fallback_from"]["function"] == "stock-all-network"
+    assert payload["data"][0]["up"] == 1
+    assert payload["data"][0]["down"] == 1
 
 
 def test_quote_sentiment_combines_pools_and_breadth(
@@ -271,6 +338,58 @@ def test_quote_sentiment_combines_pools_and_breadth(
     assert summary["limit_break_rate"] == 0.333333
     assert summary["highest_board_count"] == 3.0
     assert summary["breadth"]["up"] == 1
+
+
+def test_quote_sentiment_keeps_working_when_breadth_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sentiment does not fail just because the all-market quote subdomain is broken."""
+
+    def fake_fetch_biying(
+        dataset: str,
+        params: dict[str, object],
+        **_: object,
+    ) -> dict[str, object]:
+        _ = params
+        data = {
+            "limit-up-pool": [{}],
+            "limit-down-pool": [],
+            "strong-pool": [],
+            "limit-break-pool": [],
+        }[dataset]
+        return {"ok": True, "rows": len(data), "data": data}
+
+    def fake_fetch_quote_all(**_: object) -> dict[str, object]:
+        raise RuntimeError("certificate mismatch")
+
+    def fake_akshare_dataframe(
+        function: str,
+        params: dict[str, object],
+        **_: object,
+    ) -> dict[str, object]:
+        return {
+            "ok": True,
+            "source": "akshare-test",
+            "function": function,
+            "params": params,
+            "rows": 1,
+            "data": [{"涨跌幅": "0"}],
+        }
+
+    monkeypatch.setattr(cli, "_fetch_biying", fake_fetch_biying)
+    monkeypatch.setattr(cli, "_fetch_quote_all", fake_fetch_quote_all)
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["quote", "sentiment", "--date", "2026-06-05"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["fallback_from"]["function"] == "stock-all-network"
+    assert payload["data"][0]["limit_up"] == 1
+    assert payload["data"][0]["breadth"]["flat"] == 1
 
 
 def test_quote_flow_summary_aggregates_recent_days(
@@ -343,6 +462,41 @@ def test_index_intraday_routes_symbol_alias(monkeypatch: pytest.MonkeyPatch) -> 
     payload = json.loads(result.stdout)
     assert payload["function"] == "index-latest"
     assert payload["params"] == {"index": "000001.SH", "period": "1", "lt": None}
+
+
+def test_index_quote_auto_falls_back_to_akshare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Index quote falls back to AKShare when Biying realtime is unavailable."""
+
+    def fake_biying_dataset(**_: object) -> dict[str, object]:
+        raise RuntimeError("HTTP Error 503: Service Unavailable")
+
+    def fake_akshare_dataframe(
+        function: str,
+        params: dict[str, object],
+        **_: object,
+    ) -> dict[str, object]:
+        return {
+            "ok": True,
+            "source": "akshare-test",
+            "function": function,
+            "params": params,
+            "rows": 2,
+            "data": [{"代码": "000001", "名称": "上证指数"}, {"代码": "000002"}],
+        }
+
+    monkeypatch.setattr(cli, "fetch_biying_dataset", fake_biying_dataset)
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(cli.app, ["index", "quote", "--symbol", "000001.SH"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "stock_zh_index_spot_em"
+    assert payload["params"] == {"symbol": "上证系列指数", "filter_symbol": "000001"}
+    assert payload["fallback_from"]["function"] == "index-realtime"
+    assert payload["rows"] == 1
 
 
 def test_index_tech_routes_indicator_to_dataset(
@@ -427,6 +581,54 @@ def test_fund_share_change_routes_szse_backup_source(
         "start_date": "20260401",
         "end_date": "20260401",
     }
+
+
+def test_fund_share_change_accepts_symbol_and_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ETF share-change can infer SZSE from a fund symbol and filter the result."""
+
+    def fake_akshare_dataframe(
+        function: str,
+        params: dict[str, object],
+        **_: object,
+    ) -> dict[str, object]:
+        return {
+            "ok": True,
+            "source": "akshare-test",
+            "function": function,
+            "params": params,
+            "rows": 2,
+            "data": [{"基金代码": "159995"}, {"基金代码": "159996"}],
+        }
+
+    monkeypatch.setattr(cli, "_akshare_dataframe", fake_akshare_dataframe)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "fund",
+            "share-change",
+            "--symbol",
+            "159995",
+            "--start-date",
+            "20260601",
+            "--end-date",
+            "20260605",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["function"] == "fund_scale_daily_szse"
+    assert payload["params"] == {
+        "symbol": "ETF",
+        "start_date": "20260601",
+        "end_date": "20260605",
+        "filter_symbol": "159995",
+    }
+    assert payload["rows"] == 1
+    assert payload["data"] == [{"基金代码": "159995"}]
 
 
 def test_fund_holdings_routes_to_eastmoney_source(

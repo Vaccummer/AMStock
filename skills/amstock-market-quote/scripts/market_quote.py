@@ -50,7 +50,7 @@ def fetch(args: argparse.Namespace) -> tuple[str, dict[str, object], pd.DataFram
     import akshare as ak
 
     if args.kind == "a-spot":
-        return "stock_zh_a_spot_em", {}, ak.stock_zh_a_spot_em()
+        return "stock_zh_a_spot", {}, ak.stock_zh_a_spot()
 
     if args.kind == "individual":
         if not args.symbol:
@@ -76,7 +76,7 @@ def fetch_fallback(args: argparse.Namespace, error: Exception) -> dict[str, obje
         with baostock_session() as bs:
             result_set = bs.query_all_stock(**params)
             payload = result_set_payload("query_all_stock", params, result_set, limit=args.limit)
-        return add_fallback_metadata(payload, function="stock_zh_a_spot_em", error=error)
+        return add_fallback_metadata(payload, function="stock_zh_a_spot", error=error)
 
     if args.kind == "individual" and args.symbol:
         params = {"code": normalize_baostock_code(args.symbol)}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 from typing import TYPE_CHECKING, Annotated, Literal
 
@@ -862,20 +864,29 @@ def quote_all(
         Literal["broker", "network"],
         typer.Option("--feed", help="Biying all-market realtime feed."),
     ] = "network",
+    source: Annotated[
+        Literal["auto", "biying", "sina"],
+        typer.Option("--source", help="All-market quote source."),
+    ] = "auto",
     licences: BiyingLicencesOption = None,
     base_url: BiyingBaseUrlOption = "https://api.biyingapi.com",
     timeout: BiyingTimeoutOption = DEFAULT_TIMEOUT_SECONDS,
     limit: LimitOption = None,
+    no_proxy: NoProxyOption = False,
+    ipv4: Ipv4Option = False,
 ) -> None:
     """Fetch all-market realtime stock quotes."""
 
     _run_json(
-        lambda: _fetch_quote_all(
+        lambda: _quote_all_payload(
             feed=feed,
+            source=source,
             licences=licences,
             base_url=base_url,
             timeout=timeout,
             limit=limit,
+            no_proxy=no_proxy,
+            ipv4=ipv4,
         ),
     )
 
@@ -982,18 +993,19 @@ def quote_breadth(
     licences: BiyingLicencesOption = None,
     base_url: BiyingBaseUrlOption = "https://api.biyingapi.com",
     timeout: BiyingTimeoutOption = DEFAULT_TIMEOUT_SECONDS,
+    no_proxy: NoProxyOption = False,
+    ipv4: Ipv4Option = False,
 ) -> None:
     """Calculate market breadth from all-market realtime quotes."""
 
     _run_json(
-        lambda: _breadth_payload(
-            _fetch_quote_all(
-                feed=feed,
-                licences=licences,
-                base_url=base_url,
-                timeout=timeout,
-                limit=None,
-            )
+        lambda: _quote_breadth_payload(
+            feed=feed,
+            licences=licences,
+            base_url=base_url,
+            timeout=timeout,
+            no_proxy=no_proxy,
+            ipv4=ipv4,
         ),
     )
 
@@ -1008,6 +1020,8 @@ def quote_sentiment(
     licences: BiyingLicencesOption = None,
     base_url: BiyingBaseUrlOption = "https://api.biyingapi.com",
     timeout: BiyingTimeoutOption = DEFAULT_TIMEOUT_SECONDS,
+    no_proxy: NoProxyOption = False,
+    ipv4: Ipv4Option = False,
 ) -> None:
     """Calculate a market sentiment snapshot from stock pools and breadth."""
 
@@ -1018,6 +1032,8 @@ def quote_sentiment(
             licences=licences,
             base_url=base_url,
             timeout=timeout,
+            no_proxy=no_proxy,
+            ipv4=ipv4,
         ),
     )
 
@@ -1227,21 +1243,29 @@ def index_quote(
         str,
         typer.Option("--index", "--symbol", help="Index symbol, e.g. 000001.SH."),
     ],
+    source: Annotated[
+        Literal["auto", "biying", "akshare"],
+        typer.Option("--source", help="Quote source; auto falls back to AKShare if Biying fails."),
+    ] = "auto",
     licences: BiyingLicencesOption = None,
     base_url: BiyingBaseUrlOption = "https://api.biyingapi.com",
     timeout: BiyingTimeoutOption = DEFAULT_TIMEOUT_SECONDS,
     limit: LimitOption = None,
+    no_proxy: NoProxyOption = False,
+    ipv4: Ipv4Option = False,
 ) -> None:
-    """Fetch a realtime index quote through Biying."""
+    """Fetch a realtime index quote."""
 
     _run_json(
-        lambda: _fetch_biying(
-            "index-realtime",
-            {"index": index},
+        lambda: _index_quote_payload(
+            index=index,
+            source=source,
             licences=licences,
             base_url=base_url,
             timeout=timeout,
             limit=limit,
+            no_proxy=no_proxy,
+            ipv4=ipv4,
         ),
     )
 
@@ -1411,9 +1435,13 @@ def fund_quote(
 @fund_app.command("share-change")
 def fund_share_change(
     exchange: Annotated[
-        Literal["sse", "szse"],
+        Literal["sse", "szse"] | None,
         typer.Option("--exchange", help="Exchange to query."),
-    ],
+    ] = None,
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="Optional ETF code to filter, e.g. 159995."),
+    ] = None,
     date: Annotated[
         str | None,
         typer.Option("--date", help="Single date in YYYYMMDD format."),
@@ -1432,14 +1460,22 @@ def fund_share_change(
 ) -> None:
     """Fetch ETF share data from tested SSE/SZSE AKShare sources."""
 
-    if exchange == "sse":
+    resolved_exchange = exchange or (_infer_fund_exchange(symbol) if symbol else None)
+    if resolved_exchange is None:
+        raise typer.BadParameter("either --exchange or --symbol is required")
+
+    if resolved_exchange == "sse":
         _run_json(
-            lambda: _akshare_dataframe(
-                "fund_etf_scale_sse",
-                {"date": date or ""},
+            lambda: _filter_symbol_payload(
+                _akshare_dataframe(
+                    "fund_etf_scale_sse",
+                    {"date": date or ""},
+                    limit=None if symbol else limit,
+                    no_proxy=no_proxy,
+                    ipv4=ipv4,
+                ),
+                symbol=symbol,
                 limit=limit,
-                no_proxy=no_proxy,
-                ipv4=ipv4,
             )
         )
         return
@@ -1452,12 +1488,16 @@ def fund_share_change(
     if resolved_end:
         params["end_date"] = resolved_end
     _run_json(
-        lambda: _akshare_dataframe(
-            "fund_scale_daily_szse",
-            params,
+        lambda: _filter_symbol_payload(
+            _akshare_dataframe(
+                "fund_scale_daily_szse",
+                params,
+                limit=None if symbol else limit,
+                no_proxy=no_proxy,
+                ipv4=ipv4,
+            ),
+            symbol=symbol,
             limit=limit,
-            no_proxy=no_proxy,
-            ipv4=ipv4,
         )
     )
 
@@ -1522,6 +1562,75 @@ def _fetch_quote_all(
     )
 
 
+def _quote_all_payload(
+    *,
+    feed: str,
+    source: str,
+    licences: str | None,
+    base_url: str,
+    timeout: float,
+    limit: int | None,
+    no_proxy: bool,
+    ipv4: bool,
+) -> dict[str, object]:
+    if source in {"auto", "biying"}:
+        try:
+            return _fetch_quote_all(
+                feed=feed,
+                licences=licences,
+                base_url=base_url,
+                timeout=timeout,
+                limit=limit,
+            )
+        except Exception as exc:
+            if source == "biying":
+                raise
+            payload = _akshare_sina_spot_payload(
+                limit=limit,
+                no_proxy=no_proxy,
+                ipv4=ipv4,
+            )
+            payload["fallback_from"] = {
+                "source": "biying",
+                "function": f"stock-all-{feed}",
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
+            return payload
+
+    return _akshare_sina_spot_payload(limit=limit, no_proxy=no_proxy, ipv4=ipv4)
+
+
+def _quote_breadth_payload(
+    *,
+    feed: str,
+    licences: str | None,
+    base_url: str,
+    timeout: float,
+    no_proxy: bool,
+    ipv4: bool,
+) -> dict[str, object]:
+    try:
+        return _breadth_payload(
+            _fetch_quote_all(
+                feed=feed,
+                licences=licences,
+                base_url=base_url,
+                timeout=timeout,
+                limit=None,
+            )
+        )
+    except Exception as exc:
+        payload = _breadth_payload(
+            _akshare_breadth_source_payload(no_proxy=no_proxy, ipv4=ipv4)
+        )
+        payload["fallback_from"] = {
+            "source": "biying",
+            "function": f"stock-all-{feed}",
+            "error": {"type": type(exc).__name__, "message": str(exc)},
+        }
+        return payload
+
+
 def _breadth_payload(payload: dict[str, object]) -> dict[str, object]:
     records = _payload_records(payload)
     changes = [
@@ -1562,6 +1671,8 @@ def _sentiment_payload(
     licences: str | None,
     base_url: str,
     timeout: float,
+    no_proxy: bool,
+    ipv4: bool,
 ) -> dict[str, object]:
     pool_payloads = {
         "limit_up": _fetch_biying(
@@ -1597,14 +1708,13 @@ def _sentiment_payload(
             limit=None,
         ),
     }
-    breadth = _breadth_payload(
-        _fetch_quote_all(
-            feed=feed,
-            licences=licences,
-            base_url=base_url,
-            timeout=timeout,
-            limit=None,
-        )
+    breadth = _quote_breadth_payload(
+        feed=feed,
+        licences=licences,
+        base_url=base_url,
+        timeout=timeout,
+        no_proxy=no_proxy,
+        ipv4=ipv4,
     )
     limit_up_records = _payload_records(pool_payloads["limit_up"])
     limit_break_count = _payload_row_count(pool_payloads["limit_break"])
@@ -1631,6 +1741,7 @@ def _sentiment_payload(
         "returned_rows": 1,
         "columns": list(summary),
         "data": [summary],
+        "fallback_from": breadth.get("fallback_from"),
     }
 
 
@@ -1797,6 +1908,202 @@ def _number(value: object) -> float:
     return 0.0
 
 
+def _akshare_sina_spot_payload(
+    *,
+    limit: int | None,
+    no_proxy: bool,
+    ipv4: bool,
+) -> dict[str, object]:
+    return _akshare_dataframe(
+        "stock_zh_a_spot",
+        {},
+        limit=limit,
+        no_proxy=no_proxy,
+        ipv4=ipv4,
+    )
+
+
+def _akshare_breadth_source_payload(*, no_proxy: bool, ipv4: bool) -> dict[str, object]:
+    return _akshare_sina_spot_payload(limit=None, no_proxy=no_proxy, ipv4=ipv4)
+
+
+def _index_quote_payload(
+    *,
+    index: str,
+    source: str,
+    licences: str | None,
+    base_url: str,
+    timeout: float,
+    limit: int | None,
+    no_proxy: bool,
+    ipv4: bool,
+) -> dict[str, object]:
+    if source in {"auto", "biying"}:
+        try:
+            return _fetch_biying(
+                "index-realtime",
+                {"index": index},
+                licences=licences,
+                base_url=base_url,
+                timeout=timeout,
+                limit=limit,
+            )
+        except Exception as exc:
+            if source == "biying":
+                raise
+            payload = _akshare_index_quote_payload(
+                index=index,
+                limit=limit,
+                no_proxy=no_proxy,
+                ipv4=ipv4,
+            )
+            payload["fallback_from"] = {
+                "source": "biying",
+                "function": "index-realtime",
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
+            return payload
+
+    return _akshare_index_quote_payload(
+        index=index,
+        limit=limit,
+        no_proxy=no_proxy,
+        ipv4=ipv4,
+    )
+
+
+def _akshare_index_quote_payload(
+    *,
+    index: str,
+    limit: int | None,
+    no_proxy: bool,
+    ipv4: bool,
+) -> dict[str, object]:
+    normalized = _normalize_six_digit_symbol(index)
+    attempts = [
+        ("stock_zh_index_spot_em", {"symbol": _akshare_index_family(index)}),
+        ("stock_zh_index_spot_sina", {}),
+    ]
+    first_error: Exception | None = None
+    for function, params in attempts:
+        try:
+            payload = _akshare_dataframe(
+                function,
+                params,
+                limit=None,
+                no_proxy=no_proxy,
+                ipv4=ipv4,
+            )
+        except Exception as exc:
+            first_error = first_error or exc
+            continue
+        filtered = _filter_payload_records(
+            payload,
+            lambda record: _record_matches_symbol(record, normalized),
+            symbol=normalized,
+            limit=limit,
+        )
+        if filtered.get("rows") or function == attempts[-1][0]:
+            if first_error is not None:
+                filtered["akshare_fallback_from"] = {
+                    "function": attempts[0][0],
+                    "error": {
+                        "type": type(first_error).__name__,
+                        "message": str(first_error),
+                    },
+                }
+            return filtered
+
+    if first_error is not None:
+        raise first_error
+    raise ValueError(f"index quote not found for {index!r}")
+
+
+def _filter_symbol_payload(
+    payload: dict[str, object],
+    *,
+    symbol: str | None,
+    limit: int | None,
+) -> dict[str, object]:
+    if not symbol:
+        return payload
+    normalized = _normalize_six_digit_symbol(symbol)
+    return _filter_payload_records(
+        payload,
+        lambda record: _record_matches_symbol(record, normalized),
+        symbol=normalized,
+        limit=limit,
+    )
+
+
+def _filter_payload_records(
+    payload: dict[str, object],
+    predicate: Callable[[dict[str, object]], bool],
+    *,
+    symbol: str,
+    limit: int | None,
+) -> dict[str, object]:
+    records = [record for record in _payload_records(payload) if predicate(record)]
+    limited = records[:limit] if limit is not None else records
+    filtered = dict(payload)
+    params = filtered.get("params")
+    if isinstance(params, dict):
+        filtered["params"] = {**params, "filter_symbol": symbol}
+    else:
+        filtered["params"] = {"filter_symbol": symbol}
+    filtered["rows"] = len(records)
+    filtered["returned_rows"] = len(limited)
+    filtered["data"] = limited
+    return filtered
+
+
+def _record_matches_symbol(record: dict[str, object], symbol: str) -> bool:
+    for key in (
+        "代码",
+        "基金代码",
+        "证券代码",
+        "指数代码",
+        "code",
+        "fund_code",
+        "symbol",
+        "dm",
+    ):
+        value = record.get(key)
+        if value is not None and _normalize_six_digit_symbol(str(value)) == symbol:
+            return True
+    return False
+
+
+def _normalize_six_digit_symbol(symbol: str) -> str:
+    text = symbol.strip().upper()
+    if "." in text:
+        text = text.split(".", 1)[0]
+    for prefix in ("SH", "SZ", "BJ"):
+        text = text.removeprefix(prefix)
+    digits = "".join(char for char in text if char.isdigit())
+    return digits[-6:] if len(digits) >= 6 else digits
+
+
+def _infer_fund_exchange(symbol: str | None) -> str:
+    normalized = _normalize_six_digit_symbol(symbol or "")
+    if normalized.startswith(("51", "56", "58")):
+        return "sse"
+    if normalized.startswith(("15", "16", "18")):
+        return "szse"
+    msg = f"cannot infer exchange for fund symbol {symbol!r}; pass --exchange"
+    raise ValueError(msg)
+
+
+def _akshare_index_family(index: str) -> str:
+    normalized = index.upper()
+    code = _normalize_six_digit_symbol(index)
+    if normalized.endswith(".SZ") or code.startswith(("399", "980")):
+        return "深证系列指数"
+    if normalized.endswith(".SH") or code.startswith(("000", "880")):
+        return "上证系列指数"
+    return "沪深重要指数"
+
+
 def _fetch_biying(
     dataset: str,
     params: dict[str, str | int | None],
@@ -1829,7 +2136,8 @@ def _akshare_dataframe(
     configure_network(no_proxy=no_proxy, ipv4=ipv4)
     import akshare as ak
 
-    dataframe = getattr(ak, function)(**params)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        dataframe = getattr(ak, function)(**params)
     return dataframe_payload(function, params, dataframe, limit=limit)
 
 

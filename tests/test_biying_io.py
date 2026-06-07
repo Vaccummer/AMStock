@@ -38,7 +38,6 @@ def test_load_biying_licences_requires_value(
     """A missing Biying licence fails before any HTTP request is attempted."""
 
     monkeypatch.delenv("AMSTOCK_BIYING_LICENCES", raising=False)
-    monkeypatch.delenv("AMSTOCK_BIYING_LICENCE", raising=False)
     monkeypatch.setenv("AMSTOCK_HOME", str(tmp_path))
     monkeypatch.delenv("AMSTOCK_ROOT", raising=False)
 
@@ -65,7 +64,6 @@ licences = ["alpha", "beta"]
         encoding="utf-8",
     )
     monkeypatch.delenv("AMSTOCK_BIYING_LICENCES", raising=False)
-    monkeypatch.delenv("AMSTOCK_BIYING_LICENCE", raising=False)
     monkeypatch.setenv("AMSTOCK_HOME", str(tmp_path))
 
     assert load_biying_licences() == ["alpha", "beta"]
@@ -106,14 +104,14 @@ def test_build_biying_url_encodes_path_and_redacts_later() -> None:
     )
 
 
-def test_build_biying_url_uses_endpoint_base_url() -> None:
-    """Some Biying endpoints live on the all-market subdomain."""
+def test_build_biying_url_uses_default_base_url_for_all_market() -> None:
+    """All-market endpoints avoid the legacy all-market subdomain certificate mismatch."""
 
     endpoint = BIYING_ENDPOINTS["stock-all-network"]
 
     url = build_biying_url(endpoint, params={}, licence="lic-1")
 
-    assert url == "https://all.biyingapi.com/hsrl/real/all/lic-1"
+    assert url == "https://api.biyingapi.com/hsrl/real/all/lic-1"
 
 
 def test_normalize_biying_market_symbol_infers_common_suffixes() -> None:
