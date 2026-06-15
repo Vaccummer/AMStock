@@ -1,6 +1,6 @@
 ---
 name: amstock-store-user
-description: Record and query AMStock local store portfolio transactions, holdings, and returns. Use when the user wants to buy, sell, import opening positions, list trade history, view positions, or summarize realized and unrealized PnL. User-side commands do not require the admin token.
+description: Record and query AMStock local store portfolio transactions, holdings, and returns. Use when the user wants to buy, sell, import opening positions, delete a transaction, list trade history, view positions, or summarize realized and unrealized PnL. User-side commands do not require the admin token.
 ---
 
 # AMStock Store User
@@ -34,6 +34,12 @@ Import an existing opening position:
 
 ```powershell
 uv run amstock portfolio trade import-position --user alice --symbol 600519 --name 贵州茅台 --quantity 100 --avg-cost 1500 --date 2026-06-02
+```
+
+Delete one transaction by id:
+
+```powershell
+uv run amstock portfolio trade delete --user alice --id 1
 ```
 
 ## Query Ledger

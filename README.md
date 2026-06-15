@@ -198,5 +198,6 @@ Local portfolio ledger example:
 ```powershell
 uv run amstock portfolio trade buy --user alice --symbol 600519 --name 贵州茅台 --quantity 100 --price 1500 --fee 5
 uv run amstock portfolio trade sell --user alice --symbol 600519 --quantity 40 --price 1600 --fee 5
+uv run amstock portfolio trade delete --user alice --id 1
 uv run amstock portfolio summary --user alice --mark 600519=1580
 ```

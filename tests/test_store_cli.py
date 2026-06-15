@@ -77,6 +77,25 @@ def test_store_cli_records_and_summarizes_user_portfolio(
     assert payload["positions"][0]["quantity"] == "100.0000"
     assert payload["positions"][0]["unrealized_pnl"] == "190.0000"
 
+    transaction_id = json.loads(buy.stdout)["transaction"]["id"]
+    delete = runner.invoke(
+        store_cli.app,
+        [
+            "trade",
+            "delete",
+            "--user",
+            "alice",
+            "--id",
+            str(transaction_id),
+        ],
+    )
+    assert delete.exit_code == 0
+    assert json.loads(delete.stdout)["transaction"]["id"] == transaction_id
+
+    trades = runner.invoke(store_cli.app, ["trades", "--user", "alice"])
+    assert trades.exit_code == 0
+    assert json.loads(trades.stdout)["count"] == 0
+
 
 def test_store_cli_rejects_invalid_admin_token(
     tmp_path: Path,

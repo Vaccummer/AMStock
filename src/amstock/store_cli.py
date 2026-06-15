@@ -30,6 +30,7 @@ FeeOption = Annotated[str, typer.Option("--fee", help="Total transaction fee.")]
 TaxOption = Annotated[str, typer.Option("--tax", help="Total transaction tax.")]
 DateOption = Annotated[str | None, typer.Option("--date", help="Trade date in YYYY-MM-DD.")]
 NoteOption = Annotated[str | None, typer.Option("--note", help="Optional note.")]
+TransactionIdOption = Annotated[int, typer.Option("--id", help="Transaction id.")]
 MarkOption = Annotated[
     list[str] | None,
     typer.Option("--mark", help="Mark price as SYMBOL=PRICE. Can be repeated."),
@@ -208,6 +209,21 @@ def import_position(
             tax=Decimal("0"),
             trade_date=trade_date,
             note=note,
+        )
+    )
+
+
+@trade_app.command("delete")
+def delete_trade(
+    user: UsernameOption,
+    transaction_id: TransactionIdOption,
+) -> None:
+    """Delete one recorded transaction."""
+
+    _run_json(
+        lambda: _store_service().delete_trade(
+            username=user,
+            transaction_id=transaction_id,
         )
     )
 

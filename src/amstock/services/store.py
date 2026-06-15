@@ -161,6 +161,27 @@ class StoreService:
                 "transactions": [transaction_payload(item) for item in transactions],
             }
 
+    def delete_trade(self, *, username: str, transaction_id: int) -> dict[str, object]:
+        """Delete one recorded transaction."""
+
+        if transaction_id <= 0:
+            raise ValidationError("transaction id must be positive")
+        with self._database.session() as session:
+            repository = StoreRepository(session)
+            user = self._get_user(repository, username)
+            transaction = repository.get_transaction(
+                user_id=user.id,
+                transaction_id=transaction_id,
+            )
+            if transaction is None:
+                msg = f"transaction not found: {transaction_id}"
+                raise NotFoundError(msg)
+            deleted = transaction_payload(transaction)
+            repository.delete_transaction(transaction)
+            calculate_portfolio(repository.list_transactions(user_id=user.id))
+            session.commit()
+            return {"ok": True, "transaction": deleted}
+
     def positions(
         self,
         *,

@@ -45,6 +45,22 @@ class StoreRepository:
         self._session.flush()
         return transaction
 
+    def get_transaction(self, *, user_id: int, transaction_id: int) -> StoreTransaction | None:
+        """Return one transaction for a user."""
+
+        return self._session.scalar(
+            select(StoreTransaction).where(
+                StoreTransaction.user_id == user_id,
+                StoreTransaction.id == transaction_id,
+            )
+        )
+
+    def delete_transaction(self, transaction: StoreTransaction) -> None:
+        """Delete a transaction from the current unit of work."""
+
+        self._session.delete(transaction)
+        self._session.flush()
+
     def list_transactions(
         self,
         *,
