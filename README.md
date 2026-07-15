@@ -45,6 +45,9 @@ uv run amstock news list --source gdelt-policy --query OPEC --limit 20
 uv run amstock news queue
 uv run amstock news replay --limit 50
 uv run amstock portfolio summary --user alice --mark 600519=1580
+uv run amstock sector-flow import --file /path/to/sector-flow.txt
+uv run amstock sector-flow list --date 2026-07-15 --direction out --limit 30
+uv run amstock sector-flow list --code BK1106
 uv run amstock sources capabilities
 uv run amstock_src capabilities
 ```

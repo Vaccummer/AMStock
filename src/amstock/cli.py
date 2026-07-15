@@ -32,6 +32,7 @@ from amstock.news_server import (
     run_news_server,
     subscriber_list_payload,
 )
+from amstock.sector_flow_cli import app as sector_flow_app
 from amstock.services import create_application_context
 from amstock.src_cli import app as sources_app
 from amstock.src_queries import (
@@ -2944,6 +2945,7 @@ news_app.add_typer(news_subscriber_app, name="subscriber")
 app.add_typer(news_app, name="news")
 app.add_typer(sources_app, name="sources")
 app.add_typer(portfolio_app, name="portfolio")
+app.add_typer(sector_flow_app, name="sector-flow")
 
 
 def main() -> None:

@@ -1286,6 +1286,16 @@ def test_unified_portfolio_namespace_mounts_store_cli(
     assert payload["positions"][0]["quantity"] == "100.0000"
 
 
+def test_unified_sector_flow_namespace_is_mounted() -> None:
+    """The unified CLI exposes the sector-flow command group."""
+
+    result = CliRunner().invoke(cli.app, ["sector-flow", "--help"])
+
+    assert result.exit_code == 0
+    assert "import" in result.stdout
+    assert "list" in result.stdout
+
+
 def configure_amstock_home(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Create a config under a temporary AMSTOCK_HOME."""
 
