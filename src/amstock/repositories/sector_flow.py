@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -39,6 +40,14 @@ _SNAPSHOT_FIELDS = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class UpsertCounts:
+    """Counts of inserted and updated sector snapshots."""
+
+    inserted: int
+    updated: int
+
+
 class SectorFlowRepository:
     """Read and write sector-flow snapshots in the current unit of work."""
 
@@ -51,9 +60,11 @@ class SectorFlowRepository:
         flow_date: str,
         records: list[SectorFlowInput],
         now: int,
-    ) -> int:
+    ) -> UpsertCounts:
         """Insert or update each supplied date-and-sector snapshot without deleting others."""
 
+        inserted = 0
+        updated = 0
         for snapshot in records:
             stored = self._session.scalar(
                 select(SectorFlowRecord).where(
@@ -70,38 +81,28 @@ class SectorFlowRepository:
                     **_snapshot_values(snapshot),
                 )
                 self._session.add(stored)
+                inserted += 1
                 continue
 
             for field, value in _snapshot_values(snapshot).items():
                 setattr(stored, field, value)
             stored.updated_at = now
+            updated += 1
 
         self._session.flush()
-        return len(records)
+        return UpsertCounts(inserted=inserted, updated=updated)
 
     def list_records(
         self,
         *,
         flow_date: str,
         sector_code: str | None,
-        direction: str | None,
-        limit: int | None,
     ) -> list[SectorFlowRecord]:
-        """List dated snapshots with optional filters in net-inflow ascending order."""
+        """Load a small dated dataset with an optional exact code filter."""
 
         statement = select(SectorFlowRecord).where(SectorFlowRecord.flow_date == flow_date)
         if sector_code is not None:
             statement = statement.where(SectorFlowRecord.sector_code == sector_code)
-        if direction == "in":
-            statement = statement.where(SectorFlowRecord.main_net_inflow_yuan > 0)
-        elif direction == "out":
-            statement = statement.where(SectorFlowRecord.main_net_inflow_yuan < 0)
-        statement = statement.order_by(
-            SectorFlowRecord.main_net_inflow_yuan.asc(),
-            SectorFlowRecord.sector_code.asc(),
-        )
-        if limit is not None:
-            statement = statement.limit(limit)
         return list(self._session.scalars(statement))
 
 

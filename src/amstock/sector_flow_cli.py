@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path  # noqa: TC003 -- Typer evaluates command annotations at runtime.
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+from amstock.exceptions import ValidationError
 from amstock.sector_flow_io import parse_sector_flow_file
 from amstock.services import create_application_context
 from amstock.services.sector_flow import SectorFlowService, validate_flow_date
@@ -22,7 +23,7 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.command("import")
 def import_flow(
-    file: Annotated[Path, typer.Option("--file", exists=True, readable=True)],
+    file: Annotated[Path, typer.Option("--file")],
     flow_date: Annotated[str | None, typer.Option("--date")] = None,
 ) -> None:
     """Parse a sector-flow export, then import its complete snapshot."""
@@ -34,8 +35,8 @@ def import_flow(
 def list_flow(
     flow_date: Annotated[str | None, typer.Option("--date")] = None,
     code: Annotated[str | None, typer.Option("--code")] = None,
-    direction: Annotated[Literal["in", "out"] | None, typer.Option("--direction")] = None,
-    limit: Annotated[int | None, typer.Option("--limit")] = None,
+    direction: Annotated[str | None, typer.Option("--direction")] = None,
+    limit: Annotated[str | None, typer.Option("--limit")] = None,
 ) -> None:
     """List saved sector-flow snapshots for one date."""
 
@@ -44,7 +45,7 @@ def list_flow(
             flow_date=_resolve_flow_date(flow_date),
             sector_code=code,
             direction=direction,
-            limit=limit,
+            limit=_parse_limit(limit),
         )
     )
 
@@ -53,6 +54,8 @@ def _import_records(*, file: Path, flow_date: str | None) -> dict[str, object]:
     """Parse all input before constructing the persistence service."""
 
     normalized_date = _resolve_flow_date(flow_date)
+    if not file.is_file():
+        raise ValidationError(f"sector flow file does not exist: {file}")
     records = parse_sector_flow_file(file)
     return _service().import_records(flow_date=normalized_date, records=records)
 
@@ -61,6 +64,17 @@ def _resolve_flow_date(value: str | None) -> str:
     """Return an explicit valid date or the current local date."""
 
     return validate_flow_date(value if value is not None else date.today().isoformat())
+
+
+def _parse_limit(value: str | None) -> int | None:
+    """Validate the raw CLI limit inside the JSON error boundary."""
+
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValidationError("limit must be an integer") from exc
 
 
 def _service() -> SectorFlowService:

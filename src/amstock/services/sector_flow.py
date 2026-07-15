@@ -66,13 +66,19 @@ class SectorFlowService:
             raise ValidationError("sector flow file contains no records")
         validate_record_precision(records)
         with self._database.session() as session:
-            written = SectorFlowRepository(session).upsert_records(
+            counts = SectorFlowRepository(session).upsert_records(
                 flow_date=normalized_date,
                 records=records,
                 now=self._clock.now_epoch(),
             )
             session.commit()
-        return {"ok": True, "flow_date": normalized_date, "count": written}
+        return {
+            "ok": True,
+            "flow_date": normalized_date,
+            "rows_read": len(records),
+            "inserted": counts.inserted,
+            "updated": counts.updated,
+        }
 
     def list_records(
         self,
@@ -94,9 +100,14 @@ class SectorFlowService:
             records = SectorFlowRepository(session).list_records(
                 flow_date=normalized_date,
                 sector_code=normalized_code,
-                direction=direction,
-                limit=limit,
             )
+            if direction == "in":
+                records = [record for record in records if record.main_net_inflow_yuan > 0]
+            elif direction == "out":
+                records = [record for record in records if record.main_net_inflow_yuan < 0]
+            records.sort(key=lambda record: (record.main_net_inflow_yuan, record.sector_code))
+            if limit is not None:
+                records = records[:limit]
             return {
                 "ok": True,
                 "flow_date": normalized_date,

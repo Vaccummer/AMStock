@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from decimal import Decimal  # noqa: TC003 -- SQLAlchemy resolves mapped annotations at runtime.
 
-from sqlalchemy import Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from amstock.db.base import Base, EpochAuditMixin
+from amstock.db.types import ExactDecimal
 
 
 class SectorFlowRecord(Base, EpochAuditMixin):
@@ -22,23 +23,23 @@ class SectorFlowRecord(Base, EpochAuditMixin):
     flow_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     sector_code: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     sector_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    latest: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    change_percent: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    main_net_inflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    auction_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    super_order_inflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    super_order_outflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    super_order_net_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    super_order_net_ratio: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    large_order_inflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    large_order_outflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    large_order_net_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    large_order_net_ratio: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    medium_order_inflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    medium_order_outflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    medium_order_net_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    medium_order_net_ratio: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    small_order_inflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    small_order_outflow_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    small_order_net_yuan: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
-    small_order_net_ratio: Mapped[Decimal] = mapped_column(Numeric(28, 9), nullable=False)
+    latest: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    change_percent: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    main_net_inflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    auction_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    super_order_inflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    super_order_outflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    super_order_net_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    super_order_net_ratio: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    large_order_inflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    large_order_outflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    large_order_net_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    large_order_net_ratio: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    medium_order_inflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    medium_order_outflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    medium_order_net_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    medium_order_net_ratio: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    small_order_inflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    small_order_outflow_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    small_order_net_yuan: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)
+    small_order_net_ratio: Mapped[Decimal] = mapped_column(ExactDecimal(), nullable=False)

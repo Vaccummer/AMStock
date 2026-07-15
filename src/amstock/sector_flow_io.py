@@ -102,8 +102,8 @@ def parse_sector_flow_file(path: Path) -> list[SectorFlowInput]:
     if not lines:
         raise ValidationError("line 1: missing header")
 
-    _header_line_number, header = lines[0]
-    columns = _header_positions(header)
+    header_line_number, header = lines[0]
+    columns = _header_positions(header, line_number=header_line_number)
     records: list[SectorFlowInput] = []
     sector_codes: set[str] = set()
     for line_number, line in lines[1:]:
@@ -137,12 +137,20 @@ def _read_text(path: Path) -> str:
     raise ValidationError(f"line 1: unable to decode sector-flow file: {path}")
 
 
-def _header_positions(header: str) -> dict[str, int]:
+def _header_positions(header: str, *, line_number: int) -> dict[str, int]:
     cells = _cells(header)
+    seen: set[str] = set()
+    for cell in cells:
+        if cell in seen:
+            raise ValidationError(f"line {line_number}: duplicate column: {cell}")
+        seen.add(cell)
+    unknown = [cell for cell in cells if cell not in _REQUIRED_HEADINGS]
+    if unknown:
+        raise ValidationError(f"line {line_number}: unknown column: {unknown[0]}")
     positions = {cell: index for index, cell in enumerate(cells)}
     missing = [heading for heading in _REQUIRED_HEADINGS if heading not in positions]
     if missing:
-        raise ValidationError(f"line 1: missing required column: {missing[0]}")
+        raise ValidationError(f"line {line_number}: missing required column: {missing[0]}")
     return {heading: positions[heading] for heading in _REQUIRED_HEADINGS}
 
 

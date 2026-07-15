@@ -84,3 +84,23 @@ def test_parse_sector_flow_file_rejects_non_finite_decimal(tmp_path: Path) -> No
 
     with pytest.raises(ValidationError, match=r"line 2.*invalid decimal.*最新"):
         parse_sector_flow_file(path)
+
+
+def test_parse_sector_flow_file_rejects_unknown_header_column(tmp_path: Path) -> None:
+    path = tmp_path / "flow.txt"
+    lines = GBK_SAMPLE.splitlines()
+    lines[0] += " 未知列"
+    lines[1] += " extra"
+    lines[2] += " extra"
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+    with pytest.raises(ValidationError, match=r"line 1.*unknown column.*未知列"):
+        parse_sector_flow_file(path)
+
+
+def test_parse_sector_flow_file_rejects_duplicate_header_column(tmp_path: Path) -> None:
+    path = tmp_path / "flow.txt"
+    path.write_text(GBK_SAMPLE.replace("序 代码", "序 代码 代码", 1), encoding="utf-8")
+
+    with pytest.raises(ValidationError, match=r"line 1.*duplicate column.*代码"):
+        parse_sector_flow_file(path)

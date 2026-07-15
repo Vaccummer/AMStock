@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import TYPE_CHECKING
 
 from typer.testing import CliRunner
@@ -47,7 +48,7 @@ def test_sector_flow_cli_imports_and_lists_records(
     )
 
     assert imported.exit_code == 0
-    assert json.loads(imported.stdout)["count"] == 2
+    assert json.loads(imported.stdout)["rows_read"] == 2
     assert listed.exit_code == 0
     assert json.loads(listed.stdout)["records"][0]["main_net_inflow_yuan"] == "-23550000"
 
@@ -66,6 +67,44 @@ def test_sector_flow_cli_returns_json_error_without_writing_invalid_file(
     assert result.exit_code == 1
     assert json.loads(result.stdout)["ok"] is False
     assert not (tmp_path / "data" / "store.sqlite3").exists()
+
+
+def test_sector_flow_cli_returns_json_for_boundary_validation_errors(tmp_path: Path) -> None:
+    """Typer passes invalid user values through the standard JSON error wrapper."""
+
+    runner = CliRunner()
+    invocations = (
+        ["sector-flow", "list", "--direction", "sideways"],
+        ["sector-flow", "list", "--limit", "many"],
+        ["sector-flow", "import", "--file", str(tmp_path / "missing.txt")],
+    )
+
+    for arguments in invocations:
+        result = runner.invoke(cli.app, arguments)
+        assert result.exit_code == 1
+        assert json.loads(result.stdout)["ok"] is False
+
+
+def test_sector_flow_cli_defaults_to_today_and_filters_by_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Omitted dates use today and --code performs an exact match."""
+
+    configure_amstock_home(tmp_path, monkeypatch)
+    flow_file = tmp_path / "flow.txt"
+    flow_file.write_text(GBK_SAMPLE, encoding="utf-8")
+    today = date.today().isoformat()
+    runner = CliRunner()
+
+    imported = runner.invoke(cli.app, ["sector-flow", "import", "--file", str(flow_file)])
+    listed = runner.invoke(cli.app, ["sector-flow", "list", "--code", "BK0477"])
+
+    assert imported.exit_code == 0
+    assert json.loads(imported.stdout)["flow_date"] == today
+    assert listed.exit_code == 0
+    payload = json.loads(listed.stdout)
+    assert payload["flow_date"] == today
+    assert [item["sector_code"] for item in payload["records"]] == ["BK0477"]
 
 
 def configure_amstock_home(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
