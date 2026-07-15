@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
@@ -102,9 +103,11 @@ class SectorFlowService:
 def validate_flow_date(value: str) -> str:
     """Validate and normalize a YYYY-MM-DD sector-flow date."""
 
+    if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
+        raise ValidationError("date must be in YYYY-MM-DD format")
     try:
         return date.fromisoformat(value).isoformat()
-    except (TypeError, ValueError) as exc:
+    except ValueError as exc:
         raise ValidationError("date must be in YYYY-MM-DD format") from exc
 
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from amstock.config import AppSettings
 from amstock.exceptions import ValidationError
+from amstock.models.sector_flow import SectorFlowRecord
 from amstock.sector_flow_io import SectorFlowInput, parse_money_to_yuan
 from amstock.services import create_application_context
 from amstock.services.sector_flow import SectorFlowService
@@ -104,4 +106,34 @@ def test_list_filters_inflows_and_rejects_non_positive_limits() -> None:
     with pytest.raises(ValidationError, match="limit must be positive"):
         service.list_records(
             flow_date="2026-07-15", sector_code=None, direction=None, limit=0
+        )
+
+
+def test_import_preserves_sub_cent_yuan_precision_after_database_round_trip() -> None:
+    """SQLite retains parsed yuan values below the former four-decimal storage scale."""
+
+    service = create_service()
+    service.import_records(
+        flow_date="2026-07-15",
+        records=[record("BK1", "0.000000001万")],
+    )
+
+    with service._database.session() as session:
+        stored = session.scalar(select(SectorFlowRecord))
+
+    assert stored is not None
+    assert str(stored.main_net_inflow_yuan) == "0.000010000"
+
+
+def test_list_rejects_compact_non_canonical_flow_date() -> None:
+    """Only the documented YYYY-MM-DD date form is accepted at the service boundary."""
+
+    service = create_service()
+
+    with pytest.raises(ValidationError, match="date must be in YYYY-MM-DD format"):
+        service.list_records(
+            flow_date="20260715",
+            sector_code=None,
+            direction=None,
+            limit=None,
         )
