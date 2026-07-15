@@ -49,6 +49,19 @@ def test_parse_sector_flow_file_rejects_bad_amount_before_returning_records(tmp_
         parse_sector_flow_file(path)
 
 
+def test_parse_sector_flow_file_preserves_physical_line_numbers_after_blank_lines(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "flow.txt"
+    path.write_text(
+        GBK_SAMPLE.replace("\n1 BK1106", "\n\n1 BK1106").replace("76.6亿", "76.6千"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match=r"line 3.*unknown money unit"):
+        parse_sector_flow_file(path)
+
+
 def test_parse_sector_flow_file_rejects_duplicate_sector_code(tmp_path: Path) -> None:
     path = tmp_path / "flow.txt"
     path.write_text(GBK_SAMPLE.replace("BK0477", "BK1106"), encoding="utf-8")

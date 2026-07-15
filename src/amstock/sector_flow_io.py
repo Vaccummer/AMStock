@@ -94,14 +94,19 @@ def parse_sector_flow_file(path: Path) -> list[SectorFlowInput]:
     """Read and validate a complete sector-flow export before returning any record."""
 
     text = _read_text(path)
-    lines = [line for line in text.splitlines() if line.strip()]
+    lines = [
+        (line_number, line)
+        for line_number, line in enumerate(text.splitlines(), start=1)
+        if line.strip()
+    ]
     if not lines:
         raise ValidationError("line 1: missing header")
 
-    columns = _header_positions(lines[0])
+    _header_line_number, header = lines[0]
+    columns = _header_positions(header)
     records: list[SectorFlowInput] = []
     sector_codes: set[str] = set()
-    for line_number, line in enumerate(lines[1:], start=2):
+    for line_number, line in lines[1:]:
         record = _parse_row(line, line_number=line_number, columns=columns)
         if record.sector_code in sector_codes:
             raise ValidationError(
