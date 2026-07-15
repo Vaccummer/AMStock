@@ -88,6 +88,7 @@ _RATIO_FIELDS = (
     ("medium_order_net_ratio", "中单净占比"),
     ("small_order_net_ratio", "小单净占比"),
 )
+_HEADING_ALIASES = {f"{heading}%": heading for _, heading in _RATIO_FIELDS}
 
 
 def parse_sector_flow_file(path: Path) -> list[SectorFlowInput]:
@@ -118,12 +119,16 @@ def parse_sector_flow_file(path: Path) -> list[SectorFlowInput]:
 
 
 def parse_money_to_yuan(value: str, *, line_number: int) -> Decimal:
-    """Convert a signed Chinese ``亿`` or ``万`` amount into an exact yuan Decimal."""
+    """Convert a signed amount with optional ``亿``/``万`` unit into exact yuan."""
 
-    match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)(亿|万)", value.strip())
+    match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)(亿|万)?", value.strip())
     if match is None:
         raise ValidationError(f"line {line_number}: unknown money unit: {value}")
-    multiplier = Decimal("100000000") if match.group(2) == "亿" else Decimal("10000")
+    multiplier = {
+        "亿": Decimal("100000000"),
+        "万": Decimal("10000"),
+        None: Decimal("1"),
+    }[match.group(2)]
     return Decimal(match.group(1)) * multiplier
 
 
@@ -138,13 +143,18 @@ def _read_text(path: Path) -> str:
 
 
 def _header_positions(header: str, *, line_number: int) -> dict[str, int]:
-    cells = _cells(header)
+    raw_cells = _cells(header)
+    cells = [_HEADING_ALIASES.get(cell, cell) for cell in raw_cells]
     seen: set[str] = set()
-    for cell in cells:
+    for raw_cell, cell in zip(raw_cells, cells, strict=True):
         if cell in seen:
-            raise ValidationError(f"line {line_number}: duplicate column: {cell}")
+            raise ValidationError(f"line {line_number}: duplicate column: {raw_cell}")
         seen.add(cell)
-    unknown = [cell for cell in cells if cell not in _REQUIRED_HEADINGS]
+    unknown = [
+        raw
+        for raw, cell in zip(raw_cells, cells, strict=True)
+        if cell not in _REQUIRED_HEADINGS
+    ]
     if unknown:
         raise ValidationError(f"line {line_number}: unknown column: {unknown[0]}")
     positions = {cell: index for index, cell in enumerate(cells)}

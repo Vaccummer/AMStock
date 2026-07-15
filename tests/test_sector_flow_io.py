@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from amstock.exceptions import ValidationError
-from amstock.sector_flow_io import parse_sector_flow_file
+from amstock.sector_flow_io import parse_money_to_yuan, parse_sector_flow_file
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,6 +27,10 @@ GBK_SAMPLE = "\n".join(
 )
 
 
+def test_parse_money_without_unit_treats_value_as_yuan() -> None:
+    assert parse_money_to_yuan("-7801", line_number=2) == Decimal("-7801")
+
+
 def test_parse_sector_flow_file_decodes_gbk_and_converts_money_units(tmp_path: Path) -> None:
     path = tmp_path / "flow.txt"
     path.write_bytes(GBK_SAMPLE.encode("gbk"))
@@ -39,6 +43,22 @@ def test_parse_sector_flow_file_decodes_gbk_and_converts_money_units(tmp_path: P
     assert records[0].main_net_inflow_yuan == Decimal("7660000000")
     assert records[1].main_net_inflow_yuan == Decimal("-23550000")
     assert records[1].large_order_inflow_yuan == Decimal("120000000")
+
+
+def test_parse_sector_flow_file_accepts_percent_suffix_on_ratio_headings(tmp_path: Path) -> None:
+    path = tmp_path / "flow.txt"
+    lines = GBK_SAMPLE.splitlines()
+    ratio_headings = {"超大单净占比", "大单净占比", "中单净占比", "小单净占比"}
+    lines[0] = " ".join(
+        f"{cell}%" if cell in ratio_headings else cell for cell in lines[0].split()
+    )
+    sample = "\n".join(lines)
+    path.write_bytes(sample.encode("gbk"))
+
+    records = parse_sector_flow_file(path)
+
+    assert records[0].super_order_net_ratio == Decimal("12.3")
+    assert records[1].small_order_net_ratio == Decimal("-0.4")
 
 
 def test_parse_sector_flow_file_rejects_bad_amount_before_returning_records(tmp_path: Path) -> None:
