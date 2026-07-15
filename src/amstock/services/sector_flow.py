@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import TYPE_CHECKING, Literal
 
 from amstock.exceptions import ValidationError
@@ -40,6 +40,10 @@ _RATIO_FIELDS = (
     "medium_order_net_ratio",
     "small_order_net_ratio",
 )
+_NUMERIC_FIELDS = ("latest", "change_percent", *_MONEY_FIELDS, *_RATIO_FIELDS)
+_NUMERIC_SCALE = 9
+_NUMERIC_PRECISION = 28
+_NUMERIC_QUANT = Decimal("0.000000001")
 
 
 class SectorFlowService:
@@ -60,6 +64,7 @@ class SectorFlowService:
         normalized_date = validate_flow_date(flow_date)
         if not records:
             raise ValidationError("sector flow file contains no records")
+        validate_record_precision(records)
         with self._database.session() as session:
             written = SectorFlowRepository(session).upsert_records(
                 flow_date=normalized_date,
@@ -109,6 +114,30 @@ def validate_flow_date(value: str) -> str:
         return date.fromisoformat(value).isoformat()
     except ValueError as exc:
         raise ValidationError("date must be in YYYY-MM-DD format") from exc
+
+
+def validate_record_precision(records: list[SectorFlowInput]) -> None:
+    """Reject parsed snapshots that cannot be represented by ``Numeric(28, 9)``."""
+
+    for record in records:
+        for field in _NUMERIC_FIELDS:
+            validate_numeric_precision(field, getattr(record, field))
+
+
+def validate_numeric_precision(field: str, value: Decimal) -> None:
+    """Ensure one Decimal fits the database precision without rounding."""
+
+    if max(value.adjusted() + 1, 0) > _NUMERIC_PRECISION - _NUMERIC_SCALE:
+        message = f"{field} exceeds {_NUMERIC_PRECISION - _NUMERIC_SCALE} integer digits"
+        raise ValidationError(message)
+    with localcontext() as context:
+        context.prec = _NUMERIC_PRECISION
+        try:
+            representable = value.quantize(_NUMERIC_QUANT)
+        except InvalidOperation as exc:
+            raise ValidationError(f"{field} cannot be represented in Numeric(28, 9)") from exc
+    if representable != value:
+        raise ValidationError(f"{field} cannot exceed {_NUMERIC_SCALE} decimal places")
 
 
 def normalize_sector_code(value: str) -> str:

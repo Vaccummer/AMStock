@@ -137,3 +137,20 @@ def test_list_rejects_compact_non_canonical_flow_date() -> None:
             direction=None,
             limit=None,
         )
+
+
+def test_import_rejects_unrepresentable_yuan_precision_before_writing() -> None:
+    """A parsed amount beyond the database scale fails without creating any rows."""
+
+    service = create_service()
+
+    with pytest.raises(ValidationError, match=r"main_net_inflow_yuan.*9 decimal places"):
+        service.import_records(
+            flow_date="2026-07-15",
+            records=[record("BK1", "0.00000000000001万")],
+        )
+
+    result = service.list_records(
+        flow_date="2026-07-15", sector_code=None, direction=None, limit=None
+    )
+    assert result["count"] == 0
