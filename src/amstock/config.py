@@ -33,6 +33,15 @@ class AppSettings:
     biying_licences: tuple[str, ...] = ()
     biying_base_url: str = "https://api.biyingapi.com"
     biying_timeout: float = 20.0
+    gdelt_cloud_token: str = ""
+    marketaux_token: str = ""
+    gdelt_cloud_tokens: tuple[str, ...] = ()
+    marketaux_tokens: tuple[str, ...] = ()
+    news_proxy_url: str = ""
+    twelvedata_api_key: str = ""
+    twelvedata_base_url: str = "https://api.twelvedata.com"
+    twelvedata_timeout: float = 20.0
+    twelvedata_proxy_url: str = ""
 
 
 def default_config_toml() -> str:
@@ -53,6 +62,72 @@ admin_token = "amstock-store-admin-token"
 licences = []
 base_url = "https://api.biyingapi.com"
 timeout = 20
+
+[credentials.news]
+gdelt_cloud_token = ""
+marketaux_token = ""
+gdelt_cloud_tokens = []
+marketaux_tokens = []
+proxy_url = ""
+
+[credentials.twelvedata]
+api_key = ""
+base_url = "https://api.twelvedata.com"
+timeout = 20
+proxy_url = ""
+
+[news.server]
+interval_seconds = 300
+timezone = "Asia/Shanghai"
+log_path = "logs/news_server.log"
+
+[news.quiet_hours]
+enabled = true
+start = "23:00"
+end = "08:30"
+flush_on_end = true
+
+[[news.sources]]
+name = "eastmoney-flash"
+type = "akshare_flash"
+enabled = true
+source = "eastmoney"
+interval_seconds = 180
+active_windows = []
+limit = 100
+
+[astrbot]
+base_url = "http://localhost:6185"
+api_key = ""
+review_username = "amstock-news-agent"
+review_session_id = "amstock-news-review"
+timeout = 20
+
+[[astrbot.subscribers]]
+name = "default"
+enabled = false
+umo = ""
+min_importance = 4
+markets = []
+sources = []
+prompt_prefix = ""
+prompt_suffix = ""
+news_preference = ""
+min_keep_importance = 2
+realtime_min_importance = 5
+realtime_min_urgency = 4
+rating_batch_size = 30
+digest_min_items = 10
+digest_max_items = 40
+digest_times = ["10:00", "12:00", "15:10", "20:30"]
+review_session_id = "amstock-news-review-default"
+max_context_chars = 12000
+
+[astrbot.subscribers.quiet_hours]
+enabled = true
+start = "23:00"
+end = "08:30"
+flush_on_end = true
 """.strip() + "\n"
 
 
@@ -135,6 +210,47 @@ def load_settings() -> AppSettings:
             "https://api.biyingapi.com",
         ),
         biying_timeout=get_nested_float(config, ("credentials", "biying", "timeout"), 20.0),
+        gdelt_cloud_token=get_nested_string(
+            config,
+            ("credentials", "news", "gdelt_cloud_token"),
+            "",
+        ),
+        marketaux_token=get_nested_string(
+            config,
+            ("credentials", "news", "marketaux_token"),
+            "",
+        ),
+        gdelt_cloud_tokens=resolve_string_tuple(
+            config,
+            ("credentials", "news", "gdelt_cloud_tokens"),
+            fallback=get_nested_string(config, ("credentials", "news", "gdelt_cloud_token"), ""),
+        ),
+        marketaux_tokens=resolve_string_tuple(
+            config,
+            ("credentials", "news", "marketaux_tokens"),
+            fallback=get_nested_string(config, ("credentials", "news", "marketaux_token"), ""),
+        ),
+        news_proxy_url=get_nested_string(config, ("credentials", "news", "proxy_url"), ""),
+        twelvedata_api_key=get_nested_string(
+            config,
+            ("credentials", "twelvedata", "api_key"),
+            "",
+        ),
+        twelvedata_base_url=get_nested_string(
+            config,
+            ("credentials", "twelvedata", "base_url"),
+            "https://api.twelvedata.com",
+        ),
+        twelvedata_timeout=get_nested_float(
+            config,
+            ("credentials", "twelvedata", "timeout"),
+            20.0,
+        ),
+        twelvedata_proxy_url=get_nested_string(
+            config,
+            ("credentials", "twelvedata", "proxy_url"),
+            "",
+        ),
     )
 
 
@@ -212,6 +328,17 @@ def resolve_sqlite_database_url(root: Path, database_url: str) -> str:
     return str(URL.create(drivername=url.drivername, database=(root / database_path).as_posix()))
 
 
+def sqlite_path_from_url(database_url: str) -> Path | None:
+    """Return the filesystem path for a SQLite database URL."""
+
+    url = make_url(database_url)
+    if url.drivername not in {"sqlite", "sqlite+pysqlite"}:
+        return None
+    if url.database in {None, "", ":memory:"}:
+        return None
+    return Path(url.database).expanduser()
+
+
 def sqlite_url_from_path(path: Path) -> str:
     """Build a SQLite URL from a filesystem path."""
 
@@ -238,6 +365,30 @@ def get_nested_mapping(config: dict[str, Any], keys: tuple[str, ...]) -> dict[st
     if not isinstance(current, dict):
         return {}
     return current
+
+
+def resolve_string_tuple(
+    config: dict[str, Any],
+    keys: tuple[str, ...],
+    *,
+    fallback: str = "",
+) -> tuple[str, ...]:
+    """Return a nested string list setting with scalar fallback."""
+
+    current: object = config
+    for key in keys:
+        if not isinstance(current, dict):
+            current = None
+            break
+        current = current.get(key)
+    values: list[str] = []
+    if isinstance(current, list):
+        values = [str(item).strip() for item in current if str(item).strip()]
+    elif isinstance(current, str):
+        values = [item.strip() for item in current.split(",") if item.strip()]
+    if not values and fallback.strip():
+        values = [fallback.strip()]
+    return tuple(values)
 
 
 def get_nested_string(config: dict[str, Any], keys: tuple[str, ...], default: str) -> str:

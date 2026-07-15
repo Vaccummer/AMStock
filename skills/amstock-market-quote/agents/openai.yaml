@@ -1,4 +1,4 @@
 interface:
   display_name: "AMStock Market Quote"
-  short_description: "Fetch A-share quotes, order books, stock pools, and stock basics with AMStock."
-  default_prompt: "Use this skill with the unified amstock CLI to fetch A-share realtime quotes, level-5 order books, market summaries, stock pools, and individual stock basics."
+  short_description: "Fetch A-share and US stock quotes, order books, stock pools, and basics with AMStock."
+  default_prompt: "Use this skill with the unified amstock CLI to fetch A-share realtime quotes, US stock quotes through Twelve Data, level-5 order books, market summaries, stock pools, and individual stock basics."

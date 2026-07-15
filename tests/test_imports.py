@@ -88,6 +88,8 @@ def test_load_settings_from_amstock_home_config_toml(
 
     assert settings.store_admin_token == "server-token"
     assert settings.biying_licences == ("lic-a", "lic-b")
+    assert settings.gdelt_cloud_token == "gdelt-token"
+    assert settings.marketaux_token == "marketaux-token"
     assert database_url.database == (tmp_path / "data" / "server.sqlite3").as_posix()
     assert config_path(tmp_path) == tmp_path / "config" / "config.toml"
 
@@ -126,6 +128,10 @@ admin_token = "server-token"
 
 [credentials.biying]
 licences = ["lic-a", "lic-b"]
+
+[credentials.news]
+gdelt_cloud_token = "gdelt-token"
+marketaux_token = "marketaux-token"
 """.strip(),
         encoding="utf-8",
     )

@@ -1,6 +1,6 @@
 ---
 name: amstock-market-quote
-description: Fetch China A-share quotes, market-wide spot data, exchange summaries, order book snapshots, stock pools, capital-flow summaries, market breadth, sentiment summaries, index quotes, fund quotes, and individual stock basics through the unified AMStock CLI. Use when the user asks for current A-share prices, quote snapshots, stock basic information, Shanghai/Shenzhen market summaries, broad market strength, short-term market mood, ETF realtime quotes, or wants to inspect a stock before deeper analysis.
+description: Fetch China A-share quotes, US stock quotes, market-wide spot data, exchange summaries, order book snapshots, stock pools, capital-flow summaries, market breadth, sentiment summaries, index quotes, fund quotes, and individual stock basics through the unified AMStock CLI. Use when the user asks for current A-share or US stock prices, quote snapshots, stock basic information, Shanghai/Shenzhen market summaries, broad market strength, short-term market mood, ETF realtime quotes, or wants to inspect a stock before deeper analysis.
 ---
 
 # AMStock Market Quote
@@ -11,6 +11,7 @@ Prefer `--limit` for broad datasets so the answer stays readable.
 If Sina or other AKShare requests fail because of local proxy or IPv6 routing, add `--no-proxy --ipv4`.
 For individual realtime quotes, level-5 order books, tick trades, stock pools, capital flow, index quotes, and fund quotes, use Biying-backed commands where available. Provide Biying licences with `--licences`, `AMSTOCK_BIYING_LICENCES`, or `[credentials.biying] licences = [...]` in `AMSTOCK_HOME/config/config.toml`.
 For all-market realtime quotes, prefer `quote all --source sina`; the default `--source auto` tries Biying first and falls back to AKShare Sina if the Biying all-market endpoint returns 429.
+For US stocks, use the Twelve Data-backed `us` commands. Provide the API key with `--api-key`, `AMSTOCK_TWELVEDATA_API_KEY`, or `[credentials.twelvedata] api_key = "..."` in `AMSTOCK_HOME/config/config.toml`. If outbound network access needs a proxy, use `--proxy-url`, `AMSTOCK_TWELVEDATA_PROXY`, or `[credentials.twelvedata] proxy_url = "http://127.0.0.1:7897"`.
 
 ## Commands
 
@@ -49,6 +50,17 @@ Fetch all-market realtime quotes from AKShare Sina:
 uv run amstock quote all --source sina --limit 5000
 uv run amstock quote all --source sina --limit 5000 --no-proxy --ipv4
 uv run amstock quote all --source auto --licences licence1,licence2 --limit 5000
+```
+
+Fetch US stock quotes through Twelve Data:
+
+```powershell
+uv run amstock us price --symbol NVDA
+uv run amstock us quote --symbol AAPL
+uv run amstock us quotes --symbols AAPL,MSFT,NVDA,GOOGL,META,AMZN,TSLA
+uv run amstock us history --symbol NVDA --interval 1day --outputsize 30
+uv run amstock us search --query nvidia
+uv run amstock us quote --symbol NVDA --proxy-url http://127.0.0.1:7897
 ```
 
 Fetch event stock pools:
@@ -95,5 +107,9 @@ uv run amstock fund share-change --symbol 159995 --start-date 20260601 --end-dat
 - `index quote --source auto`: Biying `index-realtime`, then AKShare index quote fallback
 - `fund quote`: Biying `fund-realtime`
 - `fund share-change --symbol`: AKShare ETF share-change source with exchange inference and symbol filtering
+- `us price`: Twelve Data `/price`
+- `us quote` and `us quotes`: Twelve Data `/quote`
+- `us history`: Twelve Data `/time_series`
+- `us search`: Twelve Data `/symbol_search`
 
 Treat source data as reference data, not investment advice.

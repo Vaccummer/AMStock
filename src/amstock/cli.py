@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 from typing import TYPE_CHECKING, Annotated, Literal
 
 import typer
@@ -14,6 +15,23 @@ from amstock.akshare_io import configure_network, dataframe_payload
 from amstock.biying_io import DEFAULT_TIMEOUT_SECONDS, fetch_biying_dataset
 from amstock.config import amstock_home, config_path, default_config_toml, resolve_config_path
 from amstock.exceptions import AMStockError
+from amstock.news_io import (
+    DEFAULT_GDELT_BASE_URL,
+    DEFAULT_MARKETAUX_BASE_URL,
+    DEFAULT_NEWS_TIMEOUT_SECONDS,
+    fetch_gdelt_news,
+    fetch_marketaux_news,
+)
+from amstock.news_server import (
+    flush_news_queue,
+    load_news_server_config,
+    news_list_payload,
+    news_queue_payload,
+    replay_news,
+    run_news_once,
+    run_news_server,
+    subscriber_list_payload,
+)
 from amstock.services import create_application_context
 from amstock.src_cli import app as sources_app
 from amstock.src_queries import (
@@ -26,6 +44,13 @@ from amstock.src_queries import (
     fetch_stock_basic,
 )
 from amstock.store_cli import app as portfolio_app
+from amstock.twelvedata_io import (
+    fetch_twelvedata_price,
+    fetch_twelvedata_quote,
+    fetch_twelvedata_quotes,
+    fetch_twelvedata_symbol_search,
+    fetch_twelvedata_time_series,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -38,6 +63,9 @@ quote_app = typer.Typer(no_args_is_help=True)
 sector_app = typer.Typer(no_args_is_help=True)
 index_app = typer.Typer(no_args_is_help=True)
 fund_app = typer.Typer(no_args_is_help=True)
+news_app = typer.Typer(no_args_is_help=True)
+news_subscriber_app = typer.Typer(no_args_is_help=True)
+us_app = typer.Typer(no_args_is_help=True)
 
 LimitOption = Annotated[int | None, typer.Option("--limit", help="Maximum rows to return.")]
 NoProxyOption = Annotated[
@@ -57,6 +85,24 @@ BiyingTimeoutOption = Annotated[
     typer.Option("--timeout", help="Biying HTTP timeout in seconds."),
 ]
 BiyingBaseUrlOption = Annotated[str, typer.Option("--base-url", help="Biying API base URL.")]
+NewsTokenOption = Annotated[str | None, typer.Option("--token", help="News API token.")]
+NewsTimeoutOption = Annotated[float, typer.Option("--timeout", help="News API timeout in seconds.")]
+TwelveDataApiKeyOption = Annotated[
+    str | None,
+    typer.Option("--api-key", help="Twelve Data API key."),
+]
+TwelveDataBaseUrlOption = Annotated[
+    str | None,
+    typer.Option("--base-url", help="Twelve Data API base URL."),
+]
+TwelveDataTimeoutOption = Annotated[
+    float | None,
+    typer.Option("--timeout", help="Twelve Data HTTP timeout in seconds."),
+]
+TwelveDataProxyOption = Annotated[
+    str | None,
+    typer.Option("--proxy-url", help="HTTP proxy URL for Twelve Data requests."),
+]
 
 @app.callback()
 def root(
@@ -141,6 +187,134 @@ def config_init(
         raise typer.Exit(1) from exc
 
     _echo_json({"ok": True, "created": True, "config_path": str(path)})
+
+
+@us_app.command("price")
+def us_price(
+    symbol: Annotated[str, typer.Option("--symbol", help="US stock symbol, e.g. NVDA.")],
+    api_key: TwelveDataApiKeyOption = None,
+    base_url: TwelveDataBaseUrlOption = None,
+    timeout: TwelveDataTimeoutOption = None,
+    proxy_url: TwelveDataProxyOption = None,
+) -> None:
+    """Fetch the latest US stock price through Twelve Data."""
+
+    _run_json(
+        lambda: fetch_twelvedata_price(
+            symbol=symbol,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            proxy_url=proxy_url,
+        ),
+    )
+
+
+@us_app.command("quote")
+def us_quote(
+    symbol: Annotated[str, typer.Option("--symbol", help="US stock symbol, e.g. AAPL.")],
+    api_key: TwelveDataApiKeyOption = None,
+    base_url: TwelveDataBaseUrlOption = None,
+    timeout: TwelveDataTimeoutOption = None,
+    proxy_url: TwelveDataProxyOption = None,
+) -> None:
+    """Fetch a US stock quote snapshot through Twelve Data."""
+
+    _run_json(
+        lambda: fetch_twelvedata_quote(
+            symbol=symbol,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            proxy_url=proxy_url,
+        ),
+    )
+
+
+@us_app.command("quotes")
+def us_quotes(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="Comma-separated US symbols, e.g. AAPL,MSFT,NVDA."),
+    ],
+    api_key: TwelveDataApiKeyOption = None,
+    base_url: TwelveDataBaseUrlOption = None,
+    timeout: TwelveDataTimeoutOption = None,
+    proxy_url: TwelveDataProxyOption = None,
+) -> None:
+    """Fetch multiple US stock quote snapshots through Twelve Data."""
+
+    _run_json(
+        lambda: fetch_twelvedata_quotes(
+            symbols=symbols,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            proxy_url=proxy_url,
+        ),
+    )
+
+
+@us_app.command("history")
+def us_history(
+    symbol: Annotated[str, typer.Option("--symbol", help="US stock symbol, e.g. NVDA.")],
+    interval: Annotated[
+        str,
+        typer.Option("--interval", help="Twelve Data interval, e.g. 1min, 5min, 1day."),
+    ] = "1day",
+    outputsize: Annotated[
+        int | None,
+        typer.Option("--outputsize", help="Number of bars to return."),
+    ] = None,
+    start_date: Annotated[
+        str | None,
+        typer.Option("--start-date", help="Start date/time accepted by Twelve Data."),
+    ] = None,
+    end_date: Annotated[
+        str | None,
+        typer.Option("--end-date", help="End date/time accepted by Twelve Data."),
+    ] = None,
+    api_key: TwelveDataApiKeyOption = None,
+    base_url: TwelveDataBaseUrlOption = None,
+    timeout: TwelveDataTimeoutOption = None,
+    proxy_url: TwelveDataProxyOption = None,
+) -> None:
+    """Fetch US stock historical bars through Twelve Data."""
+
+    _run_json(
+        lambda: fetch_twelvedata_time_series(
+            symbol=symbol,
+            interval=interval,
+            outputsize=outputsize,
+            start_date=start_date,
+            end_date=end_date,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            proxy_url=proxy_url,
+        ),
+    )
+
+
+@us_app.command("search")
+def us_search(
+    query: Annotated[str, typer.Option("--query", help="Symbol or company name to search.")],
+    api_key: TwelveDataApiKeyOption = None,
+    base_url: TwelveDataBaseUrlOption = None,
+    timeout: TwelveDataTimeoutOption = None,
+    proxy_url: TwelveDataProxyOption = None,
+) -> None:
+    """Search Twelve Data symbols."""
+
+    _run_json(
+        lambda: fetch_twelvedata_symbol_search(
+            query=query,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            proxy_url=proxy_url,
+        ),
+    )
 
 
 @stock_app.command("list")
@@ -1543,6 +1717,395 @@ def fund_holding_summary(
     )
 
 
+@news_app.command("gdelt")
+def news_gdelt(
+    endpoint: Annotated[
+        Literal["stories", "events", "media-events"],
+        typer.Option("--endpoint", help="GDELT Cloud endpoint to query."),
+    ] = "stories",
+    query: Annotated[
+        str | None,
+        typer.Option("--query", "--search", help="Keyword query for GDELT stories/events."),
+    ] = None,
+    start_date: Annotated[
+        str | None,
+        typer.Option("--start-date", "--from", help="Start date/time passed as date_start."),
+    ] = None,
+    end_date: Annotated[
+        str | None,
+        typer.Option("--end-date", "--to", help="End date/time passed as date_end."),
+    ] = None,
+    date: Annotated[
+        str | None,
+        typer.Option("--date", help="Date for media-events queries."),
+    ] = None,
+    days: Annotated[
+        int | None,
+        typer.Option("--days", help="Recent-day window for media-events queries."),
+    ] = None,
+    country: Annotated[
+        str | None,
+        typer.Option("--country", help="Country filter, e.g. US, CN, RU."),
+    ] = None,
+    language: Annotated[
+        str | None,
+        typer.Option("--language", help="Language filter when supported by the endpoint."),
+    ] = None,
+    domain: Annotated[
+        str | None,
+        typer.Option("--domain", help="Source domain filter when supported."),
+    ] = None,
+    category: Annotated[
+        str | None,
+        typer.Option("--category", help="GDELT category/topic filter when supported."),
+    ] = None,
+    sort: Annotated[
+        str | None,
+        typer.Option("--sort", help="Sort mode accepted by GDELT Cloud."),
+    ] = None,
+    limit: LimitOption = 20,
+    token: NewsTokenOption = None,
+    base_url: Annotated[
+        str,
+        typer.Option("--base-url", help="GDELT Cloud API base URL."),
+    ] = DEFAULT_GDELT_BASE_URL,
+    timeout: NewsTimeoutOption = DEFAULT_NEWS_TIMEOUT_SECONDS,
+) -> None:
+    """Fetch global political, military, policy, and macro news from GDELT Cloud."""
+
+    _run_json(
+        lambda: fetch_gdelt_news(
+            endpoint=endpoint,
+            params={
+                "search": query,
+                "date_start": start_date,
+                "date_end": end_date,
+                "date": date,
+                "days": days,
+                "country": country,
+                "language": language,
+                "domain": domain,
+                "category": category,
+                "sort": sort,
+            },
+            token_value=token,
+            base_url=base_url,
+            timeout=timeout,
+            limit=limit,
+        )
+    )
+
+
+@news_app.command("marketaux")
+def news_marketaux(
+    query: Annotated[
+        str | None,
+        typer.Option("--query", "--search", help="Full-text news search query."),
+    ] = None,
+    symbols: Annotated[
+        str | None,
+        typer.Option("--symbols", help="Comma-separated market symbols, e.g. AAPL,NVDA,SPY."),
+    ] = None,
+    countries: Annotated[
+        str | None,
+        typer.Option("--countries", help="Comma-separated country codes, e.g. us,cn."),
+    ] = None,
+    industries: Annotated[
+        str | None,
+        typer.Option("--industries", help="Comma-separated industries."),
+    ] = None,
+    language: Annotated[
+        str | None,
+        typer.Option("--language", help="News language, e.g. en."),
+    ] = "en",
+    published_after: Annotated[
+        str | None,
+        typer.Option("--published-after", "--from", help="Lower publication date/time bound."),
+    ] = None,
+    published_before: Annotated[
+        str | None,
+        typer.Option("--published-before", "--to", help="Upper publication date/time bound."),
+    ] = None,
+    filter_entities: Annotated[
+        bool,
+        typer.Option("--filter-entities/--no-filter-entities", help="Filter by detected entities."),
+    ] = True,
+    limit: LimitOption = 20,
+    page: Annotated[int | None, typer.Option("--page", help="Marketaux page number.")] = None,
+    token: NewsTokenOption = None,
+    base_url: Annotated[
+        str,
+        typer.Option("--base-url", help="Marketaux API base URL."),
+    ] = DEFAULT_MARKETAUX_BASE_URL,
+    timeout: NewsTimeoutOption = DEFAULT_NEWS_TIMEOUT_SECONDS,
+) -> None:
+    """Fetch market and asset-linked financial news from Marketaux."""
+
+    _run_json(
+        lambda: fetch_marketaux_news(
+            params={
+                "search": query,
+                "symbols": symbols,
+                "countries": countries,
+                "industries": industries,
+                "language": language,
+                "published_after": published_after,
+                "published_before": published_before,
+                "filter_entities": filter_entities,
+                "page": page,
+            },
+            token_value=token,
+            base_url=base_url,
+            timeout=timeout,
+            limit=limit,
+        )
+    )
+
+
+@news_app.command("once")
+def news_once() -> None:
+    """Run one news collection, AstrBot review, and delivery cycle."""
+
+    _run_json(lambda: run_news_once())
+
+
+@news_app.command("server")
+def news_server(
+    max_cycles: Annotated[
+        int | None,
+        typer.Option("--max-cycles", help="Stop after this many cycles; useful for debugging."),
+    ] = None,
+) -> None:
+    """Run the polling news server."""
+
+    try:
+        run_news_server(load_news_server_config(), max_cycles=max_cycles)
+    except Exception as exc:
+        _echo_json({"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}})
+        raise typer.Exit(1) from exc
+
+
+@news_app.command("queue")
+def news_queue(limit: LimitOption = 50) -> None:
+    """Show queued news deliveries waiting for quiet hours to end."""
+
+    _run_json(lambda: news_queue_payload(limit=limit or 50))
+
+
+@news_app.command("list")
+def news_list(
+    limit: LimitOption = 50,
+    source: Annotated[str, typer.Option("--source", help="Filter by configured source name.")] = "",
+    provider: Annotated[
+        str,
+        typer.Option("--provider", help="Filter by normalized provider."),
+    ] = "",
+    query: Annotated[
+        str,
+        typer.Option("--query", "--search", help="Search title, summary, and raw JSON."),
+    ] = "",
+    since: Annotated[
+        str,
+        typer.Option("--since", help="Filter first_seen_at or published_at at/after this value."),
+    ] = "",
+    subscriber: Annotated[
+        str,
+        typer.Option("--subscriber", help="Use this subscriber for review/delivery filters."),
+    ] = "",
+    delivery_status: Annotated[
+        str,
+        typer.Option(
+            "--delivery-status",
+            help="Filter by delivery status, e.g. sent/queued/failed.",
+        ),
+    ] = "",
+    review_push: Annotated[
+        str,
+        typer.Option("--review-push", help="Filter reviewed push decision: true or false."),
+    ] = "",
+) -> None:
+    """List stored news items matching read-only filters."""
+
+    _run_json(
+        lambda: news_list_payload(
+            limit=limit or 50,
+            source=source,
+            provider=provider,
+            query=query,
+            since=since,
+            subscriber_name=subscriber,
+            delivery_status=delivery_status,
+            review_push=review_push,
+        )
+    )
+
+
+@news_app.command("flush")
+def news_flush() -> None:
+    """Send queued news deliveries if quiet hours are over."""
+
+    _run_json(lambda: flush_news_queue())
+
+
+@news_app.command("replay")
+def news_replay(
+    limit: LimitOption = 50,
+    since: Annotated[
+        str,
+        typer.Option(
+            "--since",
+            help="Replay news first seen or published at/after this text value.",
+        ),
+    ] = "",
+    subscriber: Annotated[
+        str,
+        typer.Option("--subscriber", help="Only replay for this subscriber name."),
+    ] = "",
+    include_sent: Annotated[
+        bool,
+        typer.Option("--include-sent", help="Allow replaying items already marked sent."),
+    ] = False,
+) -> None:
+    """Replay stored news through AstrBot review and delivery."""
+
+    _run_json(
+        lambda: replay_news(
+            limit=limit or 50,
+            since=since,
+            subscriber_name=subscriber,
+            include_sent=include_sent,
+        )
+    )
+
+
+@news_subscriber_app.command("list")
+def news_subscriber_list() -> None:
+    """List configured news subscribers."""
+
+    _run_json(lambda: subscriber_list_payload())
+
+
+@news_subscriber_app.command("add")
+def news_subscriber_add(
+    name: Annotated[str, typer.Option("--name", help="Subscriber name.")],
+    umo: Annotated[str, typer.Option("--umo", help="AstrBot unified message origin.")],
+    sources: Annotated[
+        str,
+        typer.Option("--sources", help="Comma-separated accepted source names."),
+    ] = "",
+    min_importance: Annotated[
+        int,
+        typer.Option("--min-importance", help="Minimum review importance to push."),
+    ] = 4,
+    enabled: Annotated[
+        bool,
+        typer.Option("--enabled/--disabled", help="Create subscriber enabled or disabled."),
+    ] = True,
+    prompt_prefix: Annotated[
+        str,
+        typer.Option("--prompt-prefix", help="Subscriber-specific review preference."),
+    ] = "",
+    prompt_suffix: Annotated[
+        str,
+        typer.Option("--prompt-suffix", help="Subscriber-specific final output preference."),
+    ] = "",
+    news_preference: Annotated[
+        str,
+        typer.Option("--news-preference", help="Natural-language news rating preference."),
+    ] = "",
+    min_keep_importance: Annotated[
+        int,
+        typer.Option("--min-keep-importance", help="Minimum importance to keep in cache."),
+    ] = 2,
+    realtime_min_importance: Annotated[
+        int,
+        typer.Option("--realtime-min-importance", help="Minimum importance for realtime push."),
+    ] = 5,
+    realtime_min_urgency: Annotated[
+        int,
+        typer.Option("--realtime-min-urgency", help="Minimum urgency for realtime push."),
+    ] = 4,
+    rating_batch_size: Annotated[
+        int,
+        typer.Option("--rating-batch-size", help="News items per rating-agent batch."),
+    ] = 30,
+    digest_min_items: Annotated[
+        int,
+        typer.Option("--digest-min-items", help="Minimum cached items before digest push."),
+    ] = 10,
+    digest_max_items: Annotated[
+        int,
+        typer.Option("--digest-max-items", help="Maximum cached items per digest push."),
+    ] = 40,
+    digest_times: Annotated[
+        str,
+        typer.Option("--digest-times", help="Comma-separated HH:MM digest push times."),
+    ] = "10:00,12:00,15:10,20:30",
+    review_session_id: Annotated[
+        str,
+        typer.Option("--review-session-id", help="Dedicated AstrBot review session id."),
+    ] = "",
+    max_context_chars: Annotated[
+        int,
+        typer.Option("--max-context-chars", help="Maximum chars before batch summarization."),
+    ] = 12000,
+    quiet_start: Annotated[
+        str,
+        typer.Option("--quiet-start", help="Quiet-hours start HH:MM."),
+    ] = "23:00",
+    quiet_end: Annotated[str, typer.Option("--quiet-end", help="Quiet-hours end HH:MM.")] = "08:30",
+) -> None:
+    """Add a news subscriber to the config file."""
+
+    _run_json(
+        lambda: add_news_subscriber_config(
+            name=name,
+            umo=umo,
+            sources=sources,
+            min_importance=min_importance,
+            enabled=enabled,
+            prompt_prefix=prompt_prefix,
+            prompt_suffix=prompt_suffix,
+            news_preference=news_preference,
+            min_keep_importance=min_keep_importance,
+            realtime_min_importance=realtime_min_importance,
+            realtime_min_urgency=realtime_min_urgency,
+            rating_batch_size=rating_batch_size,
+            digest_min_items=digest_min_items,
+            digest_max_items=digest_max_items,
+            digest_times=digest_times,
+            review_session_id=review_session_id,
+            max_context_chars=max_context_chars,
+            quiet_start=quiet_start,
+            quiet_end=quiet_end,
+        )
+    )
+
+
+@news_subscriber_app.command("pause")
+def news_subscriber_pause(name: Annotated[str, typer.Argument(help="Subscriber name.")]) -> None:
+    """Pause a news subscriber."""
+
+    _run_json(lambda: set_news_subscriber_enabled(name, False))
+
+
+@news_subscriber_app.command("resume")
+def news_subscriber_resume(name: Annotated[str, typer.Argument(help="Subscriber name.")]) -> None:
+    """Resume a news subscriber."""
+
+    _run_json(lambda: set_news_subscriber_enabled(name, True))
+
+
+@news_subscriber_app.command("sources")
+def news_subscriber_sources(
+    name: Annotated[str, typer.Argument(help="Subscriber name.")],
+    sources: Annotated[str, typer.Option("--set", help="Comma-separated source names.")],
+) -> None:
+    """Replace a subscriber's accepted source list."""
+
+    _run_json(lambda: set_news_subscriber_sources(name, sources))
+
+
 def _fetch_quote_all(
     *,
     feed: str,
@@ -2153,6 +2716,198 @@ def _raise_value_error(message: str) -> dict[str, object]:
     raise ValueError(message)
 
 
+def add_news_subscriber_config(
+    *,
+    name: str,
+    umo: str,
+    sources: str,
+    min_importance: int,
+    enabled: bool,
+    prompt_prefix: str,
+    prompt_suffix: str,
+    news_preference: str,
+    min_keep_importance: int,
+    realtime_min_importance: int,
+    realtime_min_urgency: int,
+    rating_batch_size: int,
+    digest_min_items: int,
+    digest_max_items: int,
+    digest_times: str,
+    review_session_id: str,
+    max_context_chars: int,
+    quiet_start: str,
+    quiet_end: str,
+) -> dict[str, object]:
+    """Append a news subscriber to AMSTOCK_HOME config."""
+
+    if not name.strip():
+        raise ValueError("subscriber name is required")
+    if not umo.strip():
+        raise ValueError("subscriber umo is required")
+    path = resolve_config_path(amstock_home())
+    lines = _read_config_lines()
+    if _find_subscriber_block(lines, name.strip()) is not None:
+        raise ValueError(f"news subscriber already exists: {name}")
+    source_values = _split_csv(sources)
+    digest_time_values = _split_csv(digest_times)
+    preference = news_preference.strip() or prompt_prefix.strip()
+    session_id = review_session_id.strip() or f"amstock-news-review-{_slug(name)}"
+    block = [
+        "",
+        "[[astrbot.subscribers]]",
+        f'name = {_toml_string(name.strip())}',
+        f"enabled = {_toml_bool(enabled)}",
+        f"umo = {_toml_string(umo.strip())}",
+        f"min_importance = {min_importance}",
+        "markets = []",
+        f"sources = {_toml_string_list(source_values)}",
+        f"prompt_prefix = {_toml_string(prompt_prefix.strip())}",
+        f"prompt_suffix = {_toml_string(prompt_suffix.strip())}",
+        f"news_preference = {_toml_string(preference)}",
+        f"min_keep_importance = {min_keep_importance}",
+        f"realtime_min_importance = {realtime_min_importance}",
+        f"realtime_min_urgency = {realtime_min_urgency}",
+        f"rating_batch_size = {rating_batch_size}",
+        f"digest_min_items = {digest_min_items}",
+        f"digest_max_items = {digest_max_items}",
+        f"digest_times = {_toml_string_list(digest_time_values)}",
+        f"review_session_id = {_toml_string(session_id)}",
+        f"max_context_chars = {max_context_chars}",
+        "",
+        "[astrbot.subscribers.quiet_hours]",
+        "enabled = true",
+        f"start = {_toml_string(quiet_start)}",
+        f"end = {_toml_string(quiet_end)}",
+        "flush_on_end = true",
+        "",
+    ]
+    lines.extend(block)
+    _write_config_lines(lines)
+    return {
+        "ok": True,
+        "function": "news-subscriber-add",
+        "config_path": str(path),
+        "name": name.strip(),
+        "enabled": enabled,
+        "sources": source_values,
+        "news_preference": preference,
+        "realtime_min_importance": realtime_min_importance,
+        "realtime_min_urgency": realtime_min_urgency,
+        "digest_min_items": digest_min_items,
+        "digest_times": digest_time_values,
+        "review_session_id": session_id,
+    }
+
+
+def set_news_subscriber_enabled(name: str, enabled: bool) -> dict[str, object]:
+    """Set a news subscriber's enabled flag."""
+
+    path = resolve_config_path(amstock_home())
+    lines = _read_config_lines()
+    block = _find_subscriber_block(lines, name)
+    if block is None:
+        raise ValueError(f"news subscriber not found: {name}")
+    _set_key_in_block(lines, block[0], block[1], "enabled", _toml_bool(enabled))
+    _write_config_lines(lines)
+    return {
+        "ok": True,
+        "function": "news-subscriber-enabled",
+        "config_path": str(path),
+        "name": name,
+        "enabled": enabled,
+    }
+
+
+def set_news_subscriber_sources(name: str, sources: str) -> dict[str, object]:
+    """Replace a news subscriber's accepted sources."""
+
+    path = resolve_config_path(amstock_home())
+    source_values = _split_csv(sources)
+    lines = _read_config_lines()
+    block = _find_subscriber_block(lines, name)
+    if block is None:
+        raise ValueError(f"news subscriber not found: {name}")
+    _set_key_in_block(lines, block[0], block[1], "sources", _toml_string_list(source_values))
+    _write_config_lines(lines)
+    return {
+        "ok": True,
+        "function": "news-subscriber-sources",
+        "config_path": str(path),
+        "name": name,
+        "sources": source_values,
+    }
+
+
+def _read_config_lines() -> list[str]:
+    path = resolve_config_path(amstock_home())
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _write_config_lines(lines: list[str]) -> None:
+    path = resolve_config_path(amstock_home())
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _find_subscriber_block(lines: list[str], name: str) -> tuple[int, int] | None:
+    for start, end in _subscriber_blocks(lines):
+        block_text = "\n".join(lines[start:end])
+        match = re.search(r'(?m)^name\s*=\s*"([^"]+)"\s*$', block_text)
+        if match and match.group(1) == name:
+            return start, end
+    return None
+
+
+def _subscriber_blocks(lines: list[str]) -> list[tuple[int, int]]:
+    starts = [
+        index for index, line in enumerate(lines) if line.strip() == "[[astrbot.subscribers]]"
+    ]
+    blocks: list[tuple[int, int]] = []
+    for position, start in enumerate(starts):
+        next_start = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        end = next_start
+        for index in range(start + 1, next_start):
+            stripped = lines[index].strip()
+            if stripped.startswith("[") and not stripped.startswith("[astrbot.subscribers"):
+                end = index
+                break
+        blocks.append((start, end))
+    return blocks
+
+
+def _set_key_in_block(lines: list[str], start: int, end: int, key: str, value: str) -> None:
+    pattern = re.compile(rf"^{re.escape(key)}\s*=")
+    insert_at = end
+    for index in range(start + 1, end):
+        stripped = lines[index].strip()
+        if stripped.startswith("[astrbot.subscribers."):
+            insert_at = index
+            break
+        if pattern.match(stripped):
+            lines[index] = f"{key} = {value}"
+            return
+    lines.insert(insert_at, f"{key} = {value}")
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _toml_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _toml_string_list(values: list[str]) -> str:
+    return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-") or "subscriber"
+
+
 def _run_json(operation: Callable[[], dict[str, object]]) -> None:
     """Run an operation and emit a single JSON object."""
 
@@ -2184,6 +2939,9 @@ app.add_typer(quote_app, name="quote")
 app.add_typer(sector_app, name="sector")
 app.add_typer(index_app, name="index")
 app.add_typer(fund_app, name="fund")
+app.add_typer(us_app, name="us")
+news_app.add_typer(news_subscriber_app, name="subscriber")
+app.add_typer(news_app, name="news")
 app.add_typer(sources_app, name="sources")
 app.add_typer(portfolio_app, name="portfolio")
 
