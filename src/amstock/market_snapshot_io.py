@@ -235,6 +235,14 @@ def _validate_header(cells: list[str], *, line_number: int) -> None:
 
 
 def _parse_row(cells: list[str], *, line_number: int) -> MarketSnapshotInput:
+    if len(cells) < 2:
+        raise ValidationError(
+            f"line {line_number}: expected {len(_REQUIRED_HEADINGS)} columns, got {len(cells)}"
+        )
+    if re.fullmatch(r"[0-9]+", cells[0]) is None:
+        raise ValidationError(f"line {line_number}: invalid sequence: {cells[0]}")
+    if re.fullmatch(r"[0-9]{6}", cells[1]) is None:
+        raise ValidationError(f"line {line_number}: invalid stock code: {cells[1]}")
     if len(cells) > len(_REQUIRED_HEADINGS):
         surplus = len(cells) - len(_REQUIRED_HEADINGS)
         stock_name_end = 3 + surplus

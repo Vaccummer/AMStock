@@ -154,6 +154,24 @@ def test_parse_market_snapshot_joins_source_stock_name_with_internal_spaces(
     assert records[0].stock_name == "开润股份"
 
 
+@pytest.mark.parametrize(
+    ("malformed_prefix", "message"),
+    (
+        ("1 300 577", r"line 3.*invalid stock code.*300"),
+        ("row 300577", r"line 3.*invalid sequence.*row"),
+    ),
+)
+def test_parse_market_snapshot_rejects_malformed_prefix_before_joining_name(
+    tmp_path: Path, malformed_prefix: str, message: str
+) -> None:
+    path = tmp_path / "snapshot.txt"
+    malformed = SAMPLE.replace("\n1 300577", f"\n\n{malformed_prefix}", 1)
+    write_sample(path, malformed)
+
+    with pytest.raises(ValidationError, match=message):
+        parse_market_snapshot_file(path)
+
+
 def test_all_numeric_metrics_accept_source_placeholder(tmp_path: Path) -> None:
     path = tmp_path / "snapshot.txt"
     cells = ROW_ONE.split()
