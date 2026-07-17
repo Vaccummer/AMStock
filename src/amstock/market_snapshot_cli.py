@@ -6,9 +6,11 @@ import json
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Never
 
+import click
 import typer
+from typer.core import TyperCommand, TyperGroup
 
 from amstock.exceptions import ValidationError
 from amstock.market_snapshot_io import parse_market_snapshot_file
@@ -22,10 +24,57 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-app = typer.Typer(no_args_is_help=True)
+def _raise_json_usage_error(exc: click.UsageError) -> Never:
+    """Normalize Click parsing failures to the feature's JSON error contract."""
+
+    _echo_json(
+        {"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}}
+    )
+    raise typer.Exit(1) from exc
 
 
-@app.command("import")
+class _JsonUsageCommand(TyperCommand):
+    """A market-snapshot command with JSON-formatted parsing errors."""
+
+    def make_context(
+        self,
+        info_name: str | None,
+        args: list[str],
+        parent: click.Context | None = None,
+        **extra: object,
+    ) -> click.Context:
+        try:
+            return super().make_context(info_name, args, parent=parent, **extra)
+        except click.UsageError as exc:
+            _raise_json_usage_error(exc)
+
+
+class _JsonUsageGroup(TyperGroup):
+    """A feature-scoped group with JSON-formatted parsing errors."""
+
+    def make_context(
+        self,
+        info_name: str | None,
+        args: list[str],
+        parent: click.Context | None = None,
+        **extra: object,
+    ) -> click.Context:
+        try:
+            return super().make_context(info_name, args, parent=parent, **extra)
+        except click.UsageError as exc:
+            _raise_json_usage_error(exc)
+
+    def invoke(self, ctx: click.Context) -> object:
+        try:
+            return super().invoke(ctx)
+        except click.UsageError as exc:
+            _raise_json_usage_error(exc)
+
+
+app = typer.Typer(no_args_is_help=True, cls=_JsonUsageGroup)
+
+
+@app.command("import", cls=_JsonUsageCommand)
 def import_snapshot(
     file: Annotated[str | None, typer.Option("--file")] = None,
     snapshot_date: Annotated[str | None, typer.Option("--date")] = None,
@@ -35,7 +84,7 @@ def import_snapshot(
     _run_json(lambda: _import_records(file=file, snapshot_date=snapshot_date))
 
 
-@app.command("list")
+@app.command("list", cls=_JsonUsageCommand)
 def list_snapshot(
     snapshot_date: Annotated[str | None, typer.Option("--date")] = None,
     code: Annotated[str | None, typer.Option("--code")] = None,

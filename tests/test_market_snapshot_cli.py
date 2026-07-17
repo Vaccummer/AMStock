@@ -162,6 +162,47 @@ def test_import_missing_file_is_one_json_error_without_stderr() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ["market-snapshot", "import", "--unknown"],
+        ["market-snapshot", "import", "--file"],
+    ),
+)
+def test_import_usage_errors_are_one_json_error_without_stderr(
+    arguments: list[str],
+) -> None:
+    result = CliRunner().invoke(cli.app, arguments)
+
+    assert result.exit_code == 1
+    assert result.stderr == ""
+    lines = result.stdout.splitlines()
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["ok"] is False
+    assert payload["error"]["type"]
+    assert payload["error"]["message"]
+
+
+def test_market_snapshot_help_keeps_documented_import_options() -> None:
+    result = CliRunner().invoke(
+        cli.app, ["market-snapshot", "import", "--help"]
+    )
+
+    assert result.exit_code == 0
+    assert "--file" in result.stdout
+    assert "--date" in result.stdout
+    assert result.stderr == ""
+
+
+def test_market_snapshot_usage_normalization_is_feature_scoped() -> None:
+    result = CliRunner().invoke(cli.app, ["sector-flow", "import", "--unknown"])
+
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert "No such option: --unknown" in result.stderr
+
+
 def test_invalid_file_is_fully_parsed_before_database_is_created(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

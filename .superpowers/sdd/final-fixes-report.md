@@ -16,7 +16,7 @@ Both final-review findings are fixed with regression coverage.
 - Importing the exact shifted-row anomaly is covered end to end and confirms parsing
   rejects the file before the SQLite database is created.
 - `--file` is the only specifically required option in the market-snapshot command
-  group. Framework-level unknown-option handling remains unchanged.
+  group.
 
 ## TDD Evidence
 
@@ -78,3 +78,45 @@ No market-snapshot blockers remain. The parser intentionally rejects a reconstru
 stock-name slice containing a numeric-only or scaled token; a future legitimate stock
 name exported as a whitespace-separated numeric token would require an explicit format
 rule rather than heuristic recovery.
+
+## Strict CLI Usage-Error Follow-up
+
+Typer/Click parse failures for market-snapshot commands are now normalized by custom
+`TyperGroup` and `TyperCommand` classes attached only to this feature. Missing option
+values and unknown options emit one JSON object on stdout, no stderr, and exit code 1.
+Eager help behavior and documented `--file`/`--date` options are preserved, valid import
+and list commands still execute normally, and `sector-flow` retains Typer's standard
+usage-error behavior to prove the customization is scoped.
+
+TDD red:
+
+```text
+uv run pytest -q tests/test_market_snapshot_cli.py::test_import_usage_errors_are_one_json_error_without_stderr tests/test_market_snapshot_cli.py::test_market_snapshot_help_keeps_documented_import_options tests/test_market_snapshot_cli.py::test_market_snapshot_usage_normalization_is_feature_scoped
+2 failed, 2 passed
+```
+
+The two parameter cases, `import --unknown` and `import --file` without a value, each
+exited 2 before implementation.
+
+Targeted green:
+
+```text
+uv run pytest -q tests/test_market_snapshot_cli.py::test_import_usage_errors_are_one_json_error_without_stderr tests/test_market_snapshot_cli.py::test_market_snapshot_help_keeps_documented_import_options tests/test_market_snapshot_cli.py::test_market_snapshot_usage_normalization_is_feature_scoped tests/test_market_snapshot_cli.py::test_import_uses_explicit_and_default_dates tests/test_market_snapshot_cli.py::test_list_forwards_every_filter_to_service
+6 passed
+
+uv run ruff check src/amstock/market_snapshot_cli.py tests/test_market_snapshot_cli.py
+All checks passed!
+```
+
+Final follow-up verification:
+
+```text
+uv run pytest -q tests/test_market_snapshot_io.py tests/test_market_snapshot_cli.py tests/test_market_snapshot_service.py tests/test_cli.py
+86 passed in 2.55s
+
+uv run ruff check .
+All checks passed!
+
+uv run pytest -q tests/test_market_snapshot_cli.py::test_real_market_export_imports_all_5327_rows
+1 passed in 0.61s
+```
