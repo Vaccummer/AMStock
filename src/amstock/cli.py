@@ -15,6 +15,7 @@ from amstock.akshare_io import configure_network, dataframe_payload
 from amstock.biying_io import DEFAULT_TIMEOUT_SECONDS, fetch_biying_dataset
 from amstock.config import amstock_home, config_path, default_config_toml, resolve_config_path
 from amstock.exceptions import AMStockError
+from amstock.market_snapshot_cli import app as market_snapshot_app
 from amstock.news_io import (
     DEFAULT_GDELT_BASE_URL,
     DEFAULT_MARKETAUX_BASE_URL,
@@ -2946,6 +2947,7 @@ app.add_typer(news_app, name="news")
 app.add_typer(sources_app, name="sources")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(sector_flow_app, name="sector-flow")
+app.add_typer(market_snapshot_app, name="market-snapshot")
 
 
 def main() -> None:

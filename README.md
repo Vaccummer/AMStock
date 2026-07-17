@@ -48,6 +48,8 @@ uv run amstock portfolio summary --user alice --mark 600519=1580
 uv run amstock sector-flow import --file /path/to/sector-flow.txt
 uv run amstock sector-flow list --date 2026-07-15 --direction out --limit 30
 uv run amstock sector-flow list --code BK1106
+uv run amstock market-snapshot import --file /path/to/Table.txt --date 2026-07-15
+uv run amstock market-snapshot list --date 2026-07-15 --industry 银行 --min-change 1 --sort-by change_percent --order desc --limit 30
 uv run amstock sources capabilities
 uv run amstock_src capabilities
 ```

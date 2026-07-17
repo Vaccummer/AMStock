@@ -18,6 +18,16 @@ if TYPE_CHECKING:
 ADMIN_TOKEN = "test-admin-token"
 
 
+def test_unified_cli_mounts_market_snapshot_commands() -> None:
+    """The root command exposes the full-market snapshot command group."""
+
+    result = CliRunner().invoke(cli.app, ["market-snapshot", "--help"])
+
+    assert result.exit_code == 0
+    assert "import" in result.stdout
+    assert "list" in result.stdout
+
+
 def test_unified_stock_basic_command_routes_to_source_function(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
