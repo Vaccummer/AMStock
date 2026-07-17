@@ -27,7 +27,7 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.command("import")
 def import_snapshot(
-    file: Annotated[str, typer.Option("--file")],
+    file: Annotated[str | None, typer.Option("--file")] = None,
     snapshot_date: Annotated[str | None, typer.Option("--date")] = None,
 ) -> None:
     """Parse a complete market export, then import it for one date."""
@@ -81,10 +81,12 @@ def list_snapshot(
 
 
 def _import_records(
-    *, file: str, snapshot_date: str | None
+    *, file: str | None, snapshot_date: str | None
 ) -> dict[str, object]:
     """Parse the complete source before constructing the persistence service."""
 
+    if file is None:
+        raise ValidationError("--file is required")
     normalized_date = _resolve_snapshot_date(snapshot_date)
     path = Path(file).expanduser()
     if not path.is_file():

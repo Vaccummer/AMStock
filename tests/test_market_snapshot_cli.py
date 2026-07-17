@@ -148,12 +148,43 @@ def test_boundary_validation_errors_are_json(arguments: list[str]) -> None:
     assert payload["error"]["type"]
 
 
+def test_import_missing_file_is_one_json_error_without_stderr() -> None:
+    result = CliRunner().invoke(cli.app, ["market-snapshot", "import"])
+
+    assert result.exit_code == 1
+    assert result.stderr == ""
+    lines = result.stdout.splitlines()
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload == {
+        "error": {"message": "--file is required", "type": "ValidationError"},
+        "ok": False,
+    }
+
+
 def test_invalid_file_is_fully_parsed_before_database_is_created(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configure_amstock_home(tmp_path, monkeypatch)
     source = tmp_path / "bad.txt"
     source.write_text("bad header\nbad row\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app, ["market-snapshot", "import", "--file", str(source)]
+    )
+
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["ok"] is False
+    assert not (tmp_path / "data" / "store.sqlite3").exists()
+
+
+def test_shifted_row_is_rejected_before_database_is_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_amstock_home(tmp_path, monkeypatch)
+    source = tmp_path / "shifted.txt"
+    shifted_row = ROW.replace("12.36 服装家纺", "12.36 999 服装家纺", 1)
+    source.write_bytes(f"{HEADINGS}\n{shifted_row}\n".encode("gb18030"))
 
     result = CliRunner().invoke(
         cli.app, ["market-snapshot", "import", "--file", str(source)]

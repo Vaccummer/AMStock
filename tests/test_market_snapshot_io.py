@@ -147,11 +147,22 @@ def test_parse_market_snapshot_joins_source_stock_name_with_internal_spaces(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "snapshot.txt"
-    write_sample(path, SAMPLE.replace("开润股份", "开 润 股 份", 1))
+    write_sample(path, SAMPLE.replace("开润股份", "五 粮 液", 1))
 
     records = parse_market_snapshot_file(path)
 
-    assert records[0].stock_name == "开润股份"
+    assert records[0].stock_name == "五粮液"
+
+
+def test_parse_market_snapshot_rejects_later_surplus_numeric_token(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "snapshot.txt"
+    malformed = SAMPLE.replace("12.36 服装家纺", "12.36 999 服装家纺", 1)
+    write_sample(path, malformed)
+
+    with pytest.raises(ValidationError, match=r"line 2.*invalid stock name.*20.36"):
+        parse_market_snapshot_file(path)
 
 
 @pytest.mark.parametrize(

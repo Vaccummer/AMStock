@@ -246,7 +246,20 @@ def _parse_row(cells: list[str], *, line_number: int) -> MarketSnapshotInput:
     if len(cells) > len(_REQUIRED_HEADINGS):
         surplus = len(cells) - len(_REQUIRED_HEADINGS)
         stock_name_end = 3 + surplus
-        cells = [*cells[:2], "".join(cells[2:stock_name_end]), *cells[stock_name_end:]]
+        stock_name_cells = cells[2:stock_name_end]
+        numeric_name_cell = next(
+            (
+                cell
+                for cell in stock_name_cells
+                if cell == "—" or _SCALED_DECIMAL.fullmatch(cell) is not None
+            ),
+            None,
+        )
+        if numeric_name_cell is not None:
+            raise ValidationError(
+                f"line {line_number}: invalid stock name token: {numeric_name_cell}"
+            )
+        cells = [*cells[:2], "".join(stock_name_cells), *cells[stock_name_end:]]
     if len(cells) != len(_REQUIRED_HEADINGS):
         raise ValidationError(
             f"line {line_number}: expected {len(_REQUIRED_HEADINGS)} columns, got {len(cells)}"

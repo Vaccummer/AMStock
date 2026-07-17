@@ -1,81 +1,80 @@
-# Sector Flow Final Fixes Report
+# Market Snapshot Final Fixes Report
 
 ## Outcome
 
-All final-review findings were addressed without changing the public `sector-flow import`
-or `sector-flow list` command names/options.
+Both final-review findings are fixed with regression coverage.
 
-- Every sector-flow `Decimal` column now uses a focused SQLAlchemy `ExactDecimal`
-  `TypeDecorator` backed by canonical SQLite `TEXT`; bind/result conversion never passes
-  through binary floating point.
-- Repository SQL only selects by date and optional sector code. Direction filtering,
-  exact `Decimal` ordering with sector-code tie-breaking, and limiting run deterministically
-  in Python.
-- Typer accepts raw direction/limit strings and an unchecked `Path`; application validation
-  happens inside `_run_json`, yielding stdout JSON and exit 1 for invalid direction,
-  non-integer limit, and missing files.
-- Parser headers reject duplicate and unknown columns with the physical header line number.
-- Import results separately report `rows_read`, `inserted`, and `updated`.
-- CLI tests cover omitted-date defaulting and exact `--code` filtering.
+- Surplus-token stock-name recovery now validates every token selected for the
+  reconstructed name. A token accepted by the snapshot numeric grammar, including
+  scaled values and the nullable placeholder, rejects the row instead of shifting and
+  silently corrupting later fields.
+- Legitimate internal Chinese whitespace is still reconstructed; the focused test uses
+  `五 粮 液` and expects `五粮液`.
+- `market-snapshot import` accepts an optional value at the Typer boundary and validates
+  `--file` inside `_run_json`, so omission emits exactly one JSON object on stdout, no
+  stderr, and exit code 1.
+- Importing the exact shifted-row anomaly is covered end to end and confirms parsing
+  rejects the file before the SQLite database is created.
+- `--file` is the only specifically required option in the market-snapshot command
+  group. Framework-level unknown-option handling remains unchanged.
 
-## Red-Green Evidence
+## TDD Evidence
 
-Initial regression run:
-
-```text
-uv run pytest tests/test_sector_flow_service.py tests/test_sector_flow_io.py tests/test_sector_flow_cli.py -q
-6 failed, 14 passed
-```
-
-The failures reproduced import-count ambiguity, SQLite large-decimal corruption, unknown and
-duplicate header acceptance, missing import accounting, and Typer exit-2/non-JSON boundary
-errors.
-
-Canonical storage regression:
+The two new regressions were first run against the pre-fix implementation:
 
 ```text
-uv run pytest tests/test_sector_flow_service.py::test_sqlite_round_trip_preserves_large_and_fractional_decimals_exactly -q
-1 failed
+uv run pytest -q tests/test_market_snapshot_io.py::test_parse_market_snapshot_rejects_later_surplus_numeric_token tests/test_market_snapshot_cli.py::test_import_missing_file_is_one_json_error_without_stderr
+2 failed
 ```
 
-The raw SQLite assertion showed `1.2300` rather than canonical `1.23`; the minimal bind
-serializer fix made it green while retaining exact ORM values.
+The parser test reproduced the reviewer row with an extra `999` before industry and
+observed that no exception was raised. The CLI test observed Typer exit 2 before the JSON
+boundary.
 
-Final focused/adjacent verification:
+After the minimal fixes, the regressions plus internal-space preservation passed:
 
 ```text
-uv run pytest tests/test_sector_flow_service.py tests/test_sector_flow_io.py tests/test_sector_flow_cli.py tests/test_cli.py -q
-56 passed
+uv run pytest -q tests/test_market_snapshot_io.py::test_parse_market_snapshot_rejects_later_surplus_numeric_token tests/test_market_snapshot_io.py::test_parse_market_snapshot_joins_source_stock_name_with_internal_spaces tests/test_market_snapshot_cli.py::test_import_missing_file_is_one_json_error_without_stderr
+3 passed
 ```
-
-## Commits
-
-- `6d70eee fix: harden sector flow persistence and validation`
-- Documentation evidence is added by the immediately following report commit.
 
 ## Verification
 
+Focused parser, CLI, service, and unified-CLI suites:
+
 ```text
-uv run ruff check .
-All checks passed!
-
-git diff --check
-clean
-
-uv run pytest -q
-121 passed, 2 failed
+uv run pytest -q tests/test_market_snapshot_io.py tests/test_market_snapshot_cli.py tests/test_market_snapshot_service.py tests/test_cli.py
+82 passed in 2.42s
 ```
 
-The two full-suite failures are the user-authorized unrelated environment failures:
+Ruff and independent real-export acceptance:
 
-- `tests/test_imports.py::test_amstock_home_defaults_to_user_directory` uses `USERPROFILE`
-  while macOS `Path.home()` resolves `/Users/am`.
-- `tests/test_twelvedata_io.py::test_time_series_counts_values` inherits the configured
-  `http://127.0.0.1:7897` proxy while the test expects no proxy.
+```text
+uv run ruff check src/amstock/market_snapshot_io.py src/amstock/market_snapshot_cli.py tests/test_market_snapshot_io.py tests/test_market_snapshot_cli.py
+All checks passed!
+
+uv run pytest -q tests/test_market_snapshot_cli.py::test_real_market_export_imports_all_5327_rows
+1 passed in 0.61s
+```
+
+Repository-wide suite:
+
+```text
+uv run pytest -q
+169 passed, 2 failed in 3.18s
+```
+
+The two failures are pre-existing environment-sensitive tests unrelated to market
+snapshots:
+
+- `tests/test_imports.py::test_amstock_home_defaults_to_user_directory` sets Windows
+  `USERPROFILE`, while macOS `Path.home()` remains `/Users/am`.
+- `tests/test_twelvedata_io.py::test_time_series_counts_values` inherits configured proxy
+  `http://127.0.0.1:7897`, while the test expects no proxy.
 
 ## Concerns
 
-SQLite `CREATE TABLE IF NOT EXISTS` does not migrate a sector-flow table created by a
-pre-fix checkout from `NUMERIC` affinity to `TEXT`. Because this feature has not yet shipped,
-fresh databases receive the correct schema; any developer database already containing the
-experimental table should be recreated or explicitly migrated before relying on exact storage.
+No market-snapshot blockers remain. The parser intentionally rejects a reconstructed
+stock-name slice containing a numeric-only or scaled token; a future legitimate stock
+name exported as a whitespace-separated numeric token would require an explicit format
+rule rather than heuristic recovery.
