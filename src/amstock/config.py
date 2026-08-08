@@ -81,53 +81,33 @@ interval_seconds = 300
 timezone = "Asia/Shanghai"
 log_path = "logs/news_server.log"
 
-[news.quiet_hours]
-enabled = true
-start = "23:00"
-end = "08:30"
-flush_on_end = true
+[news.ai]
+base_url = "https://api.openai.com/v1"
+api_key = ""
+model = "gpt-4o-mini"
+timeout = 60
+sys_prompt = \"\"\"
+你是一个金融新闻分类器。请对每条新闻进行评估，返回严格的JSON格式。
+输出格式: {"news_id": <新闻ID>, "keep": true/false, "category": "<类别>", "importance": <1-5>, "urgency": <1-5>, "event": "<一句话事件摘要>"}
+category 必须从以下选择: 宏观经济, 政策监管, 地缘政治, 军事冲突, A股市场, 行业产业, 公司事件, 商品能源, 外汇利率, 海外市场, 其他
+importance: 1(无关)-5(极度重要), urgency: 1(无需立即关注)-5(突发紧急)
+只返回JSON, 不要Markdown代码块, 不要额外解释。
+\"\"\"
+
+[news.web]
+host = "127.0.0.1"
+port = 8080
 
 [[news.sources]]
 name = "eastmoney-flash"
 type = "akshare_flash"
 enabled = true
+processor_type = "ai"
 source = "eastmoney"
 interval_seconds = 180
 active_windows = []
 limit = 100
-
-[astrbot]
-base_url = "http://localhost:6185"
-api_key = ""
-review_username = "amstock-news-agent"
-review_session_id = "amstock-news-review"
-timeout = 20
-
-[[astrbot.subscribers]]
-name = "default"
-enabled = false
-umo = ""
-min_importance = 4
-markets = []
-sources = []
-prompt_prefix = ""
-prompt_suffix = ""
-news_preference = ""
-min_keep_importance = 2
-realtime_min_importance = 5
-realtime_min_urgency = 4
-rating_batch_size = 30
-digest_min_items = 10
-digest_max_items = 40
-digest_times = ["10:00", "12:00", "15:10", "20:30"]
-review_session_id = "amstock-news-review-default"
-max_context_chars = 12000
-
-[astrbot.subscribers.quiet_hours]
-enabled = true
-start = "23:00"
-end = "08:30"
-flush_on_end = true
+user_prompt = ""
 """.strip() + "\n"
 
 

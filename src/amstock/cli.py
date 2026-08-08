@@ -24,14 +24,10 @@ from amstock.news_io import (
     fetch_marketaux_news,
 )
 from amstock.news_server import (
-    flush_news_queue,
     load_news_server_config,
     news_list_payload,
-    news_queue_payload,
-    replay_news,
     run_news_once,
     run_news_server,
-    subscriber_list_payload,
 )
 from amstock.sector_flow_cli import app as sector_flow_app
 from amstock.services import create_application_context
@@ -66,7 +62,6 @@ sector_app = typer.Typer(no_args_is_help=True)
 index_app = typer.Typer(no_args_is_help=True)
 fund_app = typer.Typer(no_args_is_help=True)
 news_app = typer.Typer(no_args_is_help=True)
-news_subscriber_app = typer.Typer(no_args_is_help=True)
 us_app = typer.Typer(no_args_is_help=True)
 
 LimitOption = Annotated[int | None, typer.Option("--limit", help="Maximum rows to return.")]
@@ -1887,16 +1882,24 @@ def news_server(
         raise typer.Exit(1) from exc
 
 
-@news_app.command("queue")
-def news_queue(limit: LimitOption = 50) -> None:
-    """Show queued news deliveries waiting for quiet hours to end."""
+@news_app.command("web")
+def news_web(
+    host: Annotated[str, typer.Option("--host", help="Bind address.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="Listen port.")] = 8080,
+) -> None:
+    """Start the news API web server."""
 
-    _run_json(lambda: news_queue_payload(limit=limit or 50))
+    import uvicorn
+
+    from amstock.news_api import create_app
+
+    uvicorn.run(create_app(), host=host, port=port)
 
 
 @news_app.command("list")
 def news_list(
     limit: LimitOption = 50,
+    offset: Annotated[int, typer.Option("--offset", help="Pagination offset.")] = 0,
     source: Annotated[str, typer.Option("--source", help="Filter by configured source name.")] = "",
     provider: Annotated[
         str,
@@ -1904,208 +1907,80 @@ def news_list(
     ] = "",
     query: Annotated[
         str,
-        typer.Option("--query", "--search", help="Search title, summary, and raw JSON."),
+        typer.Option("--query", "--search", help="Search title and summary."),
     ] = "",
     since: Annotated[
         str,
         typer.Option("--since", help="Filter first_seen_at or published_at at/after this value."),
     ] = "",
-    subscriber: Annotated[
+    until: Annotated[
         str,
-        typer.Option("--subscriber", help="Use this subscriber for review/delivery filters."),
+        typer.Option("--until", help="Filter first_seen_at or published_at at/before this value."),
     ] = "",
-    delivery_status: Annotated[
+    category: Annotated[
         str,
-        typer.Option(
-            "--delivery-status",
-            help="Filter by delivery status, e.g. sent/queued/failed.",
-        ),
+        typer.Option("--category", help="Filter by exact category."),
     ] = "",
-    review_push: Annotated[
+    min_importance: Annotated[
+        int,
+        typer.Option("--min-importance", help="Minimum importance (1-5)."),
+    ] = 1,
+    max_importance: Annotated[
+        int,
+        typer.Option("--max-importance", help="Maximum importance (1-5)."),
+    ] = 5,
+    min_urgency: Annotated[
+        int,
+        typer.Option("--min-urgency", help="Minimum urgency (1-5)."),
+    ] = 1,
+    max_urgency: Annotated[
+        int,
+        typer.Option("--max-urgency", help="Maximum urgency (1-5)."),
+    ] = 5,
+    keep: Annotated[
         str,
-        typer.Option("--review-push", help="Filter reviewed push decision: true or false."),
+        typer.Option("--keep", help="Filter by AI keep decision: true or false."),
     ] = "",
+    event: Annotated[
+        str,
+        typer.Option("--event", help="Search in AI event summary."),
+    ] = "",
+    sort_by: Annotated[
+        str,
+        typer.Option("--sort-by", help="Sort field: published_at, importance, urgency, first_seen_at."),
+    ] = "first_seen_at",
+    sort_order: Annotated[
+        str,
+        typer.Option("--sort-order", help="Sort direction: asc or desc."),
+    ] = "desc",
 ) -> None:
-    """List stored news items matching read-only filters."""
+    """List stored news items matching filters."""
 
     _run_json(
         lambda: news_list_payload(
             limit=limit or 50,
+            offset=offset,
             source=source,
             provider=provider,
             query=query,
             since=since,
-            subscriber_name=subscriber,
-            delivery_status=delivery_status,
-            review_push=review_push,
-        )
-    )
-
-
-@news_app.command("flush")
-def news_flush() -> None:
-    """Send queued news deliveries if quiet hours are over."""
-
-    _run_json(lambda: flush_news_queue())
-
-
-@news_app.command("replay")
-def news_replay(
-    limit: LimitOption = 50,
-    since: Annotated[
-        str,
-        typer.Option(
-            "--since",
-            help="Replay news first seen or published at/after this text value.",
-        ),
-    ] = "",
-    subscriber: Annotated[
-        str,
-        typer.Option("--subscriber", help="Only replay for this subscriber name."),
-    ] = "",
-    include_sent: Annotated[
-        bool,
-        typer.Option("--include-sent", help="Allow replaying items already marked sent."),
-    ] = False,
-) -> None:
-    """Replay stored news through AstrBot review and delivery."""
-
-    _run_json(
-        lambda: replay_news(
-            limit=limit or 50,
-            since=since,
-            subscriber_name=subscriber,
-            include_sent=include_sent,
-        )
-    )
-
-
-@news_subscriber_app.command("list")
-def news_subscriber_list() -> None:
-    """List configured news subscribers."""
-
-    _run_json(lambda: subscriber_list_payload())
-
-
-@news_subscriber_app.command("add")
-def news_subscriber_add(
-    name: Annotated[str, typer.Option("--name", help="Subscriber name.")],
-    umo: Annotated[str, typer.Option("--umo", help="AstrBot unified message origin.")],
-    sources: Annotated[
-        str,
-        typer.Option("--sources", help="Comma-separated accepted source names."),
-    ] = "",
-    min_importance: Annotated[
-        int,
-        typer.Option("--min-importance", help="Minimum review importance to push."),
-    ] = 4,
-    enabled: Annotated[
-        bool,
-        typer.Option("--enabled/--disabled", help="Create subscriber enabled or disabled."),
-    ] = True,
-    prompt_prefix: Annotated[
-        str,
-        typer.Option("--prompt-prefix", help="Subscriber-specific review preference."),
-    ] = "",
-    prompt_suffix: Annotated[
-        str,
-        typer.Option("--prompt-suffix", help="Subscriber-specific final output preference."),
-    ] = "",
-    news_preference: Annotated[
-        str,
-        typer.Option("--news-preference", help="Natural-language news rating preference."),
-    ] = "",
-    min_keep_importance: Annotated[
-        int,
-        typer.Option("--min-keep-importance", help="Minimum importance to keep in cache."),
-    ] = 2,
-    realtime_min_importance: Annotated[
-        int,
-        typer.Option("--realtime-min-importance", help="Minimum importance for realtime push."),
-    ] = 5,
-    realtime_min_urgency: Annotated[
-        int,
-        typer.Option("--realtime-min-urgency", help="Minimum urgency for realtime push."),
-    ] = 4,
-    rating_batch_size: Annotated[
-        int,
-        typer.Option("--rating-batch-size", help="News items per rating-agent batch."),
-    ] = 30,
-    digest_min_items: Annotated[
-        int,
-        typer.Option("--digest-min-items", help="Minimum cached items before digest push."),
-    ] = 10,
-    digest_max_items: Annotated[
-        int,
-        typer.Option("--digest-max-items", help="Maximum cached items per digest push."),
-    ] = 40,
-    digest_times: Annotated[
-        str,
-        typer.Option("--digest-times", help="Comma-separated HH:MM digest push times."),
-    ] = "10:00,12:00,15:10,20:30",
-    review_session_id: Annotated[
-        str,
-        typer.Option("--review-session-id", help="Dedicated AstrBot review session id."),
-    ] = "",
-    max_context_chars: Annotated[
-        int,
-        typer.Option("--max-context-chars", help="Maximum chars before batch summarization."),
-    ] = 12000,
-    quiet_start: Annotated[
-        str,
-        typer.Option("--quiet-start", help="Quiet-hours start HH:MM."),
-    ] = "23:00",
-    quiet_end: Annotated[str, typer.Option("--quiet-end", help="Quiet-hours end HH:MM.")] = "08:30",
-) -> None:
-    """Add a news subscriber to the config file."""
-
-    _run_json(
-        lambda: add_news_subscriber_config(
-            name=name,
-            umo=umo,
-            sources=sources,
+            until=until,
+            category=category,
             min_importance=min_importance,
-            enabled=enabled,
-            prompt_prefix=prompt_prefix,
-            prompt_suffix=prompt_suffix,
-            news_preference=news_preference,
-            min_keep_importance=min_keep_importance,
-            realtime_min_importance=realtime_min_importance,
-            realtime_min_urgency=realtime_min_urgency,
-            rating_batch_size=rating_batch_size,
-            digest_min_items=digest_min_items,
-            digest_max_items=digest_max_items,
-            digest_times=digest_times,
-            review_session_id=review_session_id,
-            max_context_chars=max_context_chars,
-            quiet_start=quiet_start,
-            quiet_end=quiet_end,
+            max_importance=max_importance,
+            min_urgency=min_urgency,
+            max_urgency=max_urgency,
+            keep=keep,
+            event=event,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
     )
 
 
-@news_subscriber_app.command("pause")
-def news_subscriber_pause(name: Annotated[str, typer.Argument(help="Subscriber name.")]) -> None:
-    """Pause a news subscriber."""
-
-    _run_json(lambda: set_news_subscriber_enabled(name, False))
 
 
-@news_subscriber_app.command("resume")
-def news_subscriber_resume(name: Annotated[str, typer.Argument(help="Subscriber name.")]) -> None:
-    """Resume a news subscriber."""
 
-    _run_json(lambda: set_news_subscriber_enabled(name, True))
-
-
-@news_subscriber_app.command("sources")
-def news_subscriber_sources(
-    name: Annotated[str, typer.Argument(help="Subscriber name.")],
-    sources: Annotated[str, typer.Option("--set", help="Comma-separated source names.")],
-) -> None:
-    """Replace a subscriber's accepted source list."""
-
-    _run_json(lambda: set_news_subscriber_sources(name, sources))
 
 
 def _fetch_quote_all(
@@ -2718,197 +2593,6 @@ def _raise_value_error(message: str) -> dict[str, object]:
     raise ValueError(message)
 
 
-def add_news_subscriber_config(
-    *,
-    name: str,
-    umo: str,
-    sources: str,
-    min_importance: int,
-    enabled: bool,
-    prompt_prefix: str,
-    prompt_suffix: str,
-    news_preference: str,
-    min_keep_importance: int,
-    realtime_min_importance: int,
-    realtime_min_urgency: int,
-    rating_batch_size: int,
-    digest_min_items: int,
-    digest_max_items: int,
-    digest_times: str,
-    review_session_id: str,
-    max_context_chars: int,
-    quiet_start: str,
-    quiet_end: str,
-) -> dict[str, object]:
-    """Append a news subscriber to AMSTOCK_HOME config."""
-
-    if not name.strip():
-        raise ValueError("subscriber name is required")
-    if not umo.strip():
-        raise ValueError("subscriber umo is required")
-    path = resolve_config_path(amstock_home())
-    lines = _read_config_lines()
-    if _find_subscriber_block(lines, name.strip()) is not None:
-        raise ValueError(f"news subscriber already exists: {name}")
-    source_values = _split_csv(sources)
-    digest_time_values = _split_csv(digest_times)
-    preference = news_preference.strip() or prompt_prefix.strip()
-    session_id = review_session_id.strip() or f"amstock-news-review-{_slug(name)}"
-    block = [
-        "",
-        "[[astrbot.subscribers]]",
-        f'name = {_toml_string(name.strip())}',
-        f"enabled = {_toml_bool(enabled)}",
-        f"umo = {_toml_string(umo.strip())}",
-        f"min_importance = {min_importance}",
-        "markets = []",
-        f"sources = {_toml_string_list(source_values)}",
-        f"prompt_prefix = {_toml_string(prompt_prefix.strip())}",
-        f"prompt_suffix = {_toml_string(prompt_suffix.strip())}",
-        f"news_preference = {_toml_string(preference)}",
-        f"min_keep_importance = {min_keep_importance}",
-        f"realtime_min_importance = {realtime_min_importance}",
-        f"realtime_min_urgency = {realtime_min_urgency}",
-        f"rating_batch_size = {rating_batch_size}",
-        f"digest_min_items = {digest_min_items}",
-        f"digest_max_items = {digest_max_items}",
-        f"digest_times = {_toml_string_list(digest_time_values)}",
-        f"review_session_id = {_toml_string(session_id)}",
-        f"max_context_chars = {max_context_chars}",
-        "",
-        "[astrbot.subscribers.quiet_hours]",
-        "enabled = true",
-        f"start = {_toml_string(quiet_start)}",
-        f"end = {_toml_string(quiet_end)}",
-        "flush_on_end = true",
-        "",
-    ]
-    lines.extend(block)
-    _write_config_lines(lines)
-    return {
-        "ok": True,
-        "function": "news-subscriber-add",
-        "config_path": str(path),
-        "name": name.strip(),
-        "enabled": enabled,
-        "sources": source_values,
-        "news_preference": preference,
-        "realtime_min_importance": realtime_min_importance,
-        "realtime_min_urgency": realtime_min_urgency,
-        "digest_min_items": digest_min_items,
-        "digest_times": digest_time_values,
-        "review_session_id": session_id,
-    }
-
-
-def set_news_subscriber_enabled(name: str, enabled: bool) -> dict[str, object]:
-    """Set a news subscriber's enabled flag."""
-
-    path = resolve_config_path(amstock_home())
-    lines = _read_config_lines()
-    block = _find_subscriber_block(lines, name)
-    if block is None:
-        raise ValueError(f"news subscriber not found: {name}")
-    _set_key_in_block(lines, block[0], block[1], "enabled", _toml_bool(enabled))
-    _write_config_lines(lines)
-    return {
-        "ok": True,
-        "function": "news-subscriber-enabled",
-        "config_path": str(path),
-        "name": name,
-        "enabled": enabled,
-    }
-
-
-def set_news_subscriber_sources(name: str, sources: str) -> dict[str, object]:
-    """Replace a news subscriber's accepted sources."""
-
-    path = resolve_config_path(amstock_home())
-    source_values = _split_csv(sources)
-    lines = _read_config_lines()
-    block = _find_subscriber_block(lines, name)
-    if block is None:
-        raise ValueError(f"news subscriber not found: {name}")
-    _set_key_in_block(lines, block[0], block[1], "sources", _toml_string_list(source_values))
-    _write_config_lines(lines)
-    return {
-        "ok": True,
-        "function": "news-subscriber-sources",
-        "config_path": str(path),
-        "name": name,
-        "sources": source_values,
-    }
-
-
-def _read_config_lines() -> list[str]:
-    path = resolve_config_path(amstock_home())
-    return path.read_text(encoding="utf-8").splitlines()
-
-
-def _write_config_lines(lines: list[str]) -> None:
-    path = resolve_config_path(amstock_home())
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-
-
-def _find_subscriber_block(lines: list[str], name: str) -> tuple[int, int] | None:
-    for start, end in _subscriber_blocks(lines):
-        block_text = "\n".join(lines[start:end])
-        match = re.search(r'(?m)^name\s*=\s*"([^"]+)"\s*$', block_text)
-        if match and match.group(1) == name:
-            return start, end
-    return None
-
-
-def _subscriber_blocks(lines: list[str]) -> list[tuple[int, int]]:
-    starts = [
-        index for index, line in enumerate(lines) if line.strip() == "[[astrbot.subscribers]]"
-    ]
-    blocks: list[tuple[int, int]] = []
-    for position, start in enumerate(starts):
-        next_start = starts[position + 1] if position + 1 < len(starts) else len(lines)
-        end = next_start
-        for index in range(start + 1, next_start):
-            stripped = lines[index].strip()
-            if stripped.startswith("[") and not stripped.startswith("[astrbot.subscribers"):
-                end = index
-                break
-        blocks.append((start, end))
-    return blocks
-
-
-def _set_key_in_block(lines: list[str], start: int, end: int, key: str, value: str) -> None:
-    pattern = re.compile(rf"^{re.escape(key)}\s*=")
-    insert_at = end
-    for index in range(start + 1, end):
-        stripped = lines[index].strip()
-        if stripped.startswith("[astrbot.subscribers."):
-            insert_at = index
-            break
-        if pattern.match(stripped):
-            lines[index] = f"{key} = {value}"
-            return
-    lines.insert(insert_at, f"{key} = {value}")
-
-
-def _split_csv(value: str) -> list[str]:
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def _toml_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
-
-
-def _toml_bool(value: bool) -> str:
-    return "true" if value else "false"
-
-
-def _toml_string_list(values: list[str]) -> str:
-    return "[" + ", ".join(_toml_string(value) for value in values) + "]"
-
-
-def _slug(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-") or "subscriber"
-
 
 def _run_json(operation: Callable[[], dict[str, object]]) -> None:
     """Run an operation and emit a single JSON object."""
@@ -2942,7 +2626,6 @@ app.add_typer(sector_app, name="sector")
 app.add_typer(index_app, name="index")
 app.add_typer(fund_app, name="fund")
 app.add_typer(us_app, name="us")
-news_app.add_typer(news_subscriber_app, name="subscriber")
 app.add_typer(news_app, name="news")
 app.add_typer(sources_app, name="sources")
 app.add_typer(portfolio_app, name="portfolio")

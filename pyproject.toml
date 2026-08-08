@@ -18,6 +18,8 @@ dependencies = [
   "typer>=0.15",
   "akshare>=1.18.60",
   "baostock>=0.9.1",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
 ]
 
 [project.scripts]

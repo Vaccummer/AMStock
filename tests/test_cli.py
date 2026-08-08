@@ -984,92 +984,39 @@ def test_news_marketaux_accepts_time_range_aliases(monkeypatch: pytest.MonkeyPat
 
 
 def test_news_server_commands_route_to_server_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """News server utility commands expose the polling workflow."""
+    """News commands route to server helpers with new filter parameters."""
 
     monkeypatch.setattr(cli, "run_news_once", lambda: {"ok": True, "function": "news-once"})
-    monkeypatch.setattr(cli, "news_queue_payload", lambda limit: {"ok": True, "limit": limit})
     monkeypatch.setattr(
         cli,
         "news_list_payload",
-        lambda limit,
-        source,
-        provider,
-        query,
-        since,
-        subscriber_name,
-        delivery_status,
-        review_push: {
+        lambda **kwargs: {
             "ok": True,
             "function": "news-list",
-            "limit": limit,
-            "source": source,
-            "provider": provider,
-            "query": query,
-            "since": since,
-            "subscriber_name": subscriber_name,
-            "delivery_status": delivery_status,
-            "review_push": review_push,
-        },
-    )
-    monkeypatch.setattr(cli, "flush_news_queue", lambda: {"ok": True, "function": "news-flush"})
-    monkeypatch.setattr(
-        cli,
-        "replay_news",
-        lambda limit, since, subscriber_name, include_sent: {
-            "ok": True,
-            "function": "news-replay",
-            "limit": limit,
-            "since": since,
-            "subscriber_name": subscriber_name,
-            "include_sent": include_sent,
+            **kwargs,
         },
     )
 
     once = CliRunner().invoke(cli.app, ["news", "once"])
-    queue = CliRunner().invoke(cli.app, ["news", "queue", "--limit", "3"])
     list_result = CliRunner().invoke(
         cli.app,
         [
             "news",
             "list",
-            "--limit",
-            "9",
-            "--source",
-            "gdelt-policy",
-            "--provider",
-            "gdelt",
-            "--query",
-            "OPEC",
-            "--since",
-            "2026-06-08",
-            "--subscriber",
-            "qq-main",
-            "--delivery-status",
-            "sent",
-            "--review-push",
-            "true",
-        ],
-    )
-    flush = CliRunner().invoke(cli.app, ["news", "flush"])
-    replay = CliRunner().invoke(
-        cli.app,
-        [
-            "news",
-            "replay",
-            "--limit",
-            "7",
-            "--since",
-            "2026-06-08",
-            "--subscriber",
-            "qq-main",
-            "--include-sent",
+            "--limit", "9",
+            "--source", "gdelt-policy",
+            "--provider", "gdelt",
+            "--query", "OPEC",
+            "--since", "2026-06-08",
+            "--category", "宏观经济",
+            "--min-importance", "4",
+            "--sort-by", "importance",
+            "--sort-order", "desc",
         ],
     )
 
     assert once.exit_code == 0
     assert json.loads(once.stdout)["function"] == "news-once"
-    assert queue.exit_code == 0
-    assert json.loads(queue.stdout)["limit"] == 3
     assert list_result.exit_code == 0
     list_payload = json.loads(list_result.stdout)
     assert list_payload["function"] == "news-list"
@@ -1078,122 +1025,17 @@ def test_news_server_commands_route_to_server_helpers(monkeypatch: pytest.Monkey
     assert list_payload["provider"] == "gdelt"
     assert list_payload["query"] == "OPEC"
     assert list_payload["since"] == "2026-06-08"
-    assert list_payload["subscriber_name"] == "qq-main"
-    assert list_payload["delivery_status"] == "sent"
-    assert list_payload["review_push"] == "true"
-    assert flush.exit_code == 0
-    assert json.loads(flush.stdout)["function"] == "news-flush"
-    assert replay.exit_code == 0
-    replay_payload = json.loads(replay.stdout)
-    assert replay_payload["function"] == "news-replay"
-    assert replay_payload["limit"] == 7
-    assert replay_payload["since"] == "2026-06-08"
-    assert replay_payload["subscriber_name"] == "qq-main"
-    assert replay_payload["include_sent"] is True
+    assert list_payload["category"] == "宏观经济"
+    assert list_payload["min_importance"] == 4
 
 
-def test_news_subscriber_list_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
-    """News subscriber list exposes configured AstrBot recipients."""
+def test_news_web_command_registered() -> None:
+    """News web command is registered and accepts host/port options."""
 
-    monkeypatch.setattr(
-        cli,
-        "subscriber_list_payload",
-        lambda: {"ok": True, "function": "news-subscriber-list", "rows": 1},
-    )
-
-    result = CliRunner().invoke(cli.app, ["news", "subscriber", "list"])
-
+    result = CliRunner().invoke(cli.app, ["news", "web", "--help"])
     assert result.exit_code == 0
-    payload = json.loads(result.stdout)
-    assert payload["function"] == "news-subscriber-list"
-    assert payload["rows"] == 1
-
-
-def test_news_subscriber_commands_edit_config(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Subscriber add, pause, resume, and sources update config.toml."""
-
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    config_file = config_dir / "config.toml"
-    config_file.write_text(cli.default_config_toml(), encoding="utf-8")
-    monkeypatch.setenv("AMSTOCK_HOME", str(tmp_path))
-
-    runner = CliRunner()
-    add = runner.invoke(
-        cli.app,
-        [
-            "news",
-            "subscriber",
-            "add",
-            "--name",
-            "qq-main",
-            "--umo",
-            "2316:FriendMessage:E28EE73D29216FF05E466774984B2042",
-            "--sources",
-            "eastmoney-flash,gdelt-policy",
-            "--prompt-prefix",
-            "只关注A股相关。",
-            "--prompt-suffix",
-            "输出可直接推送。",
-            "--news-preference",
-            "偏好A股政策和宏观事件。",
-            "--min-keep-importance",
-            "3",
-            "--realtime-min-importance",
-            "5",
-            "--realtime-min-urgency",
-            "4",
-            "--rating-batch-size",
-            "20",
-            "--digest-min-items",
-            "6",
-            "--digest-max-items",
-            "25",
-            "--digest-times",
-            "10:00,15:10",
-            "--quiet-start",
-            "22:30",
-            "--quiet-end",
-            "08:45",
-        ],
-    )
-
-    assert add.exit_code == 0
-    payload = json.loads(add.stdout)
-    assert payload["function"] == "news-subscriber-add"
-    assert payload["sources"] == ["eastmoney-flash", "gdelt-policy"]
-    assert payload["digest_times"] == ["10:00", "15:10"]
-    config = load_test_config(config_file)
-    subscriber = find_test_subscriber(config, "qq-main")
-    assert subscriber["enabled"] is True
-    assert subscriber["sources"] == ["eastmoney-flash", "gdelt-policy"]
-    assert subscriber["prompt_prefix"] == "只关注A股相关。"
-    assert subscriber["news_preference"] == "偏好A股政策和宏观事件。"
-    assert subscriber["min_keep_importance"] == 3
-    assert subscriber["rating_batch_size"] == 20
-    assert subscriber["digest_min_items"] == 6
-    assert subscriber["digest_max_items"] == 25
-    assert subscriber["digest_times"] == ["10:00", "15:10"]
-    assert subscriber["quiet_hours"]["start"] == "22:30"
-
-    pause = runner.invoke(cli.app, ["news", "subscriber", "pause", "qq-main"])
-    assert pause.exit_code == 0
-    assert find_test_subscriber(load_test_config(config_file), "qq-main")["enabled"] is False
-
-    resume = runner.invoke(cli.app, ["news", "subscriber", "resume", "qq-main"])
-    assert resume.exit_code == 0
-    assert find_test_subscriber(load_test_config(config_file), "qq-main")["enabled"] is True
-
-    sources = runner.invoke(
-        cli.app,
-        ["news", "subscriber", "sources", "qq-main", "--set", "marketaux-market,eastmoney-flash"],
-    )
-    assert sources.exit_code == 0
-    subscriber = find_test_subscriber(load_test_config(config_file), "qq-main")
-    assert subscriber["sources"] == ["marketaux-market", "eastmoney-flash"]
+    assert "--host" in result.stdout
+    assert "--port" in result.stdout
 
 
 def test_unified_sources_capabilities_keeps_legacy_source_app() -> None:
@@ -1323,27 +1165,6 @@ admin_token = "{ADMIN_TOKEN}"
     )
     monkeypatch.setenv("AMSTOCK_HOME", str(root))
     monkeypatch.delenv("AMSTOCK_ROOT", raising=False)
-
-
-def load_test_config(path: Path) -> dict[str, object]:
-    """Load a TOML config written by CLI tests."""
-
-    with path.open("rb") as file:
-        return tomllib.load(file)
-
-
-def find_test_subscriber(config: dict[str, object], name: str) -> dict[str, object]:
-    """Find a subscriber in a loaded TOML config."""
-
-    astrbot = config["astrbot"]
-    assert isinstance(astrbot, dict)
-    subscribers = astrbot["subscribers"]
-    assert isinstance(subscribers, list)
-    for subscriber in subscribers:
-        assert isinstance(subscriber, dict)
-        if subscriber["name"] == name:
-            return subscriber
-    raise AssertionError(f"subscriber not found: {name}")
 
 
 def fake_biying_dataset(
